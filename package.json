@@ -2,6 +2,16 @@
   "name": "after-effects-mcp",
   "version": "1.0.0",
   "description": "MCP server for Adobe After Effects",
+  "author": "Rakeshcool",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rakeshcool/aftereffects_live_mcp.git"
+  },
+  "homepage": "https://github.com/Rakeshcool/aftereffects_live_mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Rakeshcool/aftereffects_live_mcp/issues"
+  },
   "main": "build/index.js",
   "type": "module",
   "scripts": {
