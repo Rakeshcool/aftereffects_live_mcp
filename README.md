@@ -7,6 +7,8 @@
 
 ✨ A Model Context Protocol (MCP) server for Adobe After Effects that enables AI assistants and other applications to control After Effects through a standardized protocol.
 
+![MCP Bridge demo](assets/demo.gif)
+
 ## Table of Contents
 - [Features](#features)
   - [Core Composition Features](#core-composition-features)
