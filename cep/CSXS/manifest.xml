@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CEP manifest for the MCP Bridge panel.
+
+  CEP (not UXP) is the right host for After Effects 2026: UXP plugins for AE are in public beta only
+  in the 27.x Beta build (UXP 9.4, build 27.1.045), while the shipping 26.x release still runs CEP
+  panels. When AE 27 reaches GA this manifest is what would be replaced by a UXP plugin.json.
+-->
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.mcpbridge.ae" ExtensionBundleVersion="1.0.0"
+                   ExtensionBundleName="MCP Bridge for After Effects"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <ExtensionList>
+    <Extension Id="com.mcpbridge.ae.panel" Version="1.0.0" />
+  </ExtensionList>
+  <ExecutionEnvironment>
+    <HostList>
+      <Host Name="AEFT" Version="[22.0,99.9]" />
+    </HostList>
+    <LocaleList>
+      <Locale Code="All" />
+    </LocaleList>
+    <RequiredRuntimeList>
+      <RequiredRuntime Name="CSXS" Version="9.0" />
+    </RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList>
+    <Extension Id="com.mcpbridge.ae.panel">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./index.html</MainPath>
+          <ScriptPath>./jsx/host.jsx</ScriptPath>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>MCP Bridge</Menu>
+          <Geometry>
+            <Size>
+              <Height>460</Height>
+              <Width>380</Width>
+            </Size>
+            <MinSize>
+              <Height>320</Height>
+              <Width>320</Width>
+            </MinSize>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+  </DispatchInfoList>
+</ExtensionManifest>

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>MCP Bridge</title>
+    <link rel="stylesheet" href="./css/panel.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="dot" id="dot"></span>
+        <span class="title">MCP Bridge</span>
+      </div>
+      <span class="hint" id="host-version"></span>
+    </header>
+
+    <section class="card">
+      <label class="label" for="url">Bridge connector</label>
+      <input id="url" class="input" type="text" spellcheck="false" />
+      <label class="label" for="token">Token <span class="muted">(only if the bridge sets one)</span></label>
+      <input id="token" class="input" type="password" spellcheck="false" placeholder="optional" />
+      <div class="row">
+        <button id="connect" class="primary">Connect</button>
+        <label class="check"><input id="auto" type="checkbox" checked /> Reconnect</label>
+      </div>
+    </section>
+
+    <section class="card" id="approval" hidden>
+      <div class="approval-title">Waiting for approval</div>
+      <p class="muted">
+        This panel is registered with the bridge but has not been approved yet. Approve
+        <strong>After Effects</strong> under <em>Applications</em> in the bridge panel
+        (<span id="bridge-panel"></span>) and its tools become available immediately.
+      </p>
+    </section>
+
+    <section class="card">
+      <div class="row spread">
+        <span class="label">Tools</span>
+        <span class="value" id="tool-count">0</span>
+      </div>
+      <div class="tools" id="tools"></div>
+    </section>
+
+    <section class="card grow">
+      <div class="row spread">
+        <span class="label">Log</span>
+        <button id="clear" class="link">Clear</button>
+      </div>
+      <div class="log" id="log"></div>
+    </section>
+
+    <script src="./js/tools.js"></script>
+    <script src="./js/main.js"></script>
+  </body>
+</html>
