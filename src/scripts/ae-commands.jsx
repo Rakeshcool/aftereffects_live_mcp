@@ -846,7 +846,6 @@ function applyEffect(args) {
         var layerIndex = args.layerIndex || 1; // Default to first layer
         var effectName = args.effectName; // Name of the effect to apply
         var effectMatchName = args.effectMatchName; // After Effects internal name (more reliable)
-        var effectCategory = args.effectCategory || ""; // Optional category for filtering
         var presetPath = args.presetPath; // Optional path to an effect preset
         var effectSettings = args.effectSettings || {}; // Optional effect parameters
         
@@ -1170,36 +1169,6 @@ function applyEffectTemplate(args) {
     }
 }
 
-function bridgeTestEffects(args) {
-    try {
-        var compIndex = (args && args.compIndex) ? args.compIndex : 1;
-        var layerIndex = (args && args.layerIndex) ? args.layerIndex : 1;
-
-        // Apply a light Gaussian Blur
-        var blurRes = JSON.parse(applyEffect({
-            compIndex: compIndex,
-            layerIndex: layerIndex,
-            effectMatchName: "ADBE Gaussian Blur 2",
-            effectSettings: { "Blurriness": 5 }
-        }));
-
-        // Apply a simple drop shadow via template
-        var shadowRes = JSON.parse(applyEffectTemplate({
-            compIndex: compIndex,
-            layerIndex: layerIndex,
-            templateName: "drop-shadow"
-        }));
-
-        return JSON.stringify({
-            status: "success",
-            message: "Bridge test effects applied.",
-            results: [blurRes, shadowRes]
-        }, null, 2);
-    } catch (e) {
-        return JSON.stringify({ status: "error", message: e.toString() }, null, 2);
-    }
-}
-
 function setCompositionProperties(args) {
     try {
         var compName = args.compName || "";
@@ -1418,15 +1387,12 @@ function mcpFindProperty(layer, propertyName) {
     var parts = String(propertyName).split("/");
     var node = layer;
     for (var p = 0; p < parts.length; p++) {
-        var name = parts[p].replace(/^\s+/, "").replace(/\s+$/, "");
+        var name = parts[p].replace(/^\s+|\s+$/g, "");
         if (!name) { continue; }
         if (!node || typeof node.property !== "function") {
             throw new Error("'" + name + "' cannot be reached: its parent has no properties.");
         }
-        var found = null;
-        try { found = node.property(name); } catch (e) { found = null; }
-        if (!found) { found = mcpFindPropertyByAlias(node, name); }
-        if (!found) { found = mcpFindChildProperty(node, name); }
+        var found = mcpPropertyNamed(node, name);
         if (!found) {
             throw new Error("Property not found: '" + propertyName + "' (no '" + name + "' on '" + String(node.name || "layer") + "').");
         }
@@ -1435,31 +1401,29 @@ function mcpFindProperty(layer, propertyName) {
     return node;
 }
 
-function mcpFindPropertyByAlias(node, name) {
+function mcpPropertyNamed(node, name) {
     var aliases = {
-        "effect": ["ADBE Effect Parade"],
-        "effects": ["ADBE Effect Parade"],
-        "text": ["ADBE Text Properties"],
-        "masks": ["ADBE Mask Parade"],
-        "contents": ["ADBE Root Vectors Group"]
+        effect: "ADBE Effect Parade",
+        effects: "ADBE Effect Parade",
+        text: "ADBE Text Properties",
+        masks: "ADBE Mask Parade",
+        contents: "ADBE Root Vectors Group"
     };
-    var names = aliases[String(name).toLowerCase()];
-    if (!names) { return null; }
-    for (var i = 0; i < names.length; i++) {
-        var alias = null;
-        try { alias = node.property(names[i]); } catch (e) { alias = null; }
-        if (alias) { return alias; }
+    var names = [name];
+    var alias = aliases[String(name).toLowerCase()];
+    if (alias) { names.push(alias); }
+    var i;
+    for (i = 0; i < names.length; i++) {
+        var direct = null;
+        try { direct = node.property(names[i]); } catch (e) { direct = null; }
+        if (direct) { return direct; }
     }
-    return null;
-}
-
-function mcpFindChildProperty(group, name) {
     var count = 0;
-    try { count = group.numProperties || 0; } catch (e) { count = 0; }
+    try { count = node.numProperties || 0; } catch (e) { count = 0; }
     var wanted = String(name).toLowerCase();
-    for (var i = 1; i <= count; i++) {
+    for (i = 1; i <= count; i++) {
         var child = null;
-        try { child = group.property(i); } catch (e) { child = null; }
+        try { child = node.property(i); } catch (e) { child = null; }
         if (child && String(child.name).toLowerCase() === wanted) { return child; }
     }
     return null;
@@ -1665,7 +1629,7 @@ function runScriptFile(args) {
             return JSON.stringify({ status: "success", result: result === undefined ? null : String(result) });
         }
         // A script that returns JSON keeps its own shape; anything else is wrapped
-        // so the result file is always parseable JSON for get-results. Sniffing the
+        // so the result file is always parseable JSON for the bridge. Sniffing the
         // first character avoids depending on a JSON object or a parse round-trip.
         var firstChar = result.charAt(0);
         if (firstChar === "{" || firstChar === "[") { return result; }
@@ -1691,7 +1655,7 @@ function escapeJsonString(value) {
     "create-shape-layer": function (args) { return createShapeLayer(args); },
     "create-solid-layer": function (args) { return createSolidLayer(args); },
     "create-camera": function (args) { return createCamera(args); },
-    "duplicate": function (args) { return duplicateLayer(args); },
+    "duplicate-layer": function (args) { return duplicateLayer(args); },
     "delete-layer": function (args) { return deleteLayer(args); },
     "set-layer-mask": function (args) { return setLayerMask(args); },
     "set-layer-properties": function (args) { return setLayerProperties(args); },
@@ -1702,7 +1666,6 @@ function escapeJsonString(value) {
     "apply-effect": function (args) { return applyEffect(args); },
     "apply-effect-template": function (args) { return applyEffectTemplate(args); },
     "run-script-file": function (args) { return runScriptFile(args); },
-    "test-bridge-effects": function (args) { return bridgeTestEffects(args); },
     "get-property-value": function (args) { return getPropertyValue(args); },
     "delete-keyframe": function (args) { return deleteKeyframe(args); },
     "render-composition": function (args) { return renderComposition(args); },

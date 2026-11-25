@@ -216,7 +216,7 @@ npm run install-cep        # builds the command library, installs into %APPDATA%
 Restart After Effects, then open **Window → Extensions → MCP Bridge**. The panel connects to
 `ws://127.0.0.1:7800/ws/connector` (editable, with an optional token) and registers as
 **After Effects (panel)** — id `after-effects-panel`. Approve it once in the bridge panel's *Applications*
-view; its 23 tools then appear in `/api/tools`, `/mcp` and model requests. The id is deliberately distinct
+view; its 22 tools then appear in `/api/tools`, `/mcp` and model requests. The id is deliberately distinct
 from the `after-effects` stdio server: the bridge refuses two servers with the same id, so both transports
 can be installed while the folder bridge is retired.
 
@@ -226,7 +226,7 @@ can be installed while the folder bridge is retired.
 | --- | --- |
 | `cep/CSXS/manifest.xml` | CEP manifest, AE host range, panel entry point |
 | `cep/index.html`, `css/panel.css`, `js/main.js` | panel UI, WebSocket client, registration, call dispatch |
-| `cep/js/tools.js` | the tool catalog announced to the bridge (23 tools, permissive schemas) |
+| `cep/js/tools.js` | the tool catalog announced to the bridge (the same 22 tools as `src/index.ts`) |
 | `cep/jsx/host.jsx` | ExtendScript bridge: loads the command library, wraps calls in an undo group |
 | `src/scripts/ae-commands.jsx` | **generated** — the command implementations, shared with the ScriptUI panel |
 | `scripts/build-commands.mjs` | extracts those functions from `mcp-bridge-auto.jsx` |
@@ -250,27 +250,27 @@ regenerates it and fails loudly if a command disappears or ScriptUI construction
 
 | Tool | Description |
 | --- | --- |
-| `get-project-info` | Project name, path, item counts and active composition |
+| `get-project-info` | Project name, path, item counts, active composition and the first 50 items |
 | `list-compositions` | Index, name, size, duration, frame rate and layer count of every comp |
-| `get-layer-info` | Layers of a composition, or one layer |
+| `get-layer-info` | Layers of a composition, or one layer with its timing, parent and effect count |
 | `get-property-value` | Property value, expression and keyframes; slash paths such as `Transform/Position` |
 | `create-composition` | Create a composition |
 | `set-composition-properties` | Change duration, frame rate or size |
 | `create-text-layer` | Add a text layer |
 | `create-shape-layer` | Add a shape layer (rectangle, ellipse, polygon, star) |
 | `create-solid-layer` | Add a solid or adjustment layer |
-| `create-camera` | Add a camera layer |
+| `create-camera` | Add a camera layer; `oneNode` only turns auto-orientation off |
 | `duplicate-layer` | Duplicate a layer |
 | `delete-layer` | Delete a layer |
 | `set-layer-properties` | Transform, text, blending and timing properties |
-| `batch-set-layer-properties` | The same property changes across several layers |
-| `set-layer-mask` | Create or modify a mask |
-| `set-layer-keyframe` | Set a keyframe |
+| `batch-set-layer-properties` | Position, scale, rotation, opacity, blend and timing across several layers |
+| `set-layer-mask` | Create or restyle a mask from a path or a rectangle |
+| `set-layer-keyframe` | Set a keyframe on a Transform, Effects or Text property |
 | `delete-keyframe` | Remove the keyframe nearest a time, or all of them |
 | `set-layer-expression` | Set or remove an expression |
 | `apply-effect` | Apply one effect |
 | `apply-effect-template` | Apply a named effect template |
-| `render-composition` | Render to a file, or one PNG frame |
+| `render-composition` | Render through the render queue, or write one PNG frame; reports the file actually written |
 | `run-script-file` | Escape hatch: run a .jsx file |
 
 ## 👨‍💻 For Developers

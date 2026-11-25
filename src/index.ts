@@ -66,36 +66,6 @@ function getAETempDir(): string {
   return bridgeDir;
 }
 
-// Helper to wait for a fresh result produced by a specific command
-async function waitForBridgeResult(expectedCommand?: string, timeoutMs: number = 5000, pollMs: number = 250): Promise<string> {
-  const start = Date.now();
-  const resultPath = path.join(getAETempDir(), 'ae_mcp_result.json');
-  let lastSize = -1;
-
-  while (Date.now() - start < timeoutMs) {
-    if (fs.existsSync(resultPath)) {
-      try {
-        const content = fs.readFileSync(resultPath, 'utf8');
-        if (content && content.length > 0 && content.length !== lastSize) {
-          lastSize = content.length;
-          try {
-            const parsed = JSON.parse(content);
-            if (!expectedCommand || parsed._commandExecuted === expectedCommand) {
-              return content;
-            }
-          } catch {
-            // not JSON yet; continue polling
-          }
-        }
-      } catch {
-        // transient read error; continue polling
-      }
-    }
-    await new Promise(r => setTimeout(r, pollMs));
-  }
-  return JSON.stringify({ error: `Timed out waiting for bridge result${expectedCommand ? ` for command '${expectedCommand}'` : ''}.` });
-}
-
 // Wait for the panel to write a *new* result file. Freshness is detected by
 // modification time rather than by the _commandExecuted marker: older panels
 // write results without stamping them, and a stale file must never be returned
@@ -117,10 +87,15 @@ async function waitForFreshResult(timeoutMs = 20000, pollMs = 250): Promise<stri
   return null;
 }
 
+// Path of the bridge's single command slot.
+function getCommandFilePath(): string {
+  return path.join(getAETempDir(), 'ae_command.json');
+}
+
 // Helper function to write command to file
 function writeCommandFile(command: string, args: Record<string, any> = {}): void {
   try {
-    const commandFile = path.join(getAETempDir(), 'ae_command.json');
+    const commandFile = getCommandFilePath();
     const commandData = {
       command,
       args,
@@ -159,23 +134,99 @@ function textResult(text: string, isError = false): ToolResponse {
   return { content: [{ type: "text", text }], isError };
 }
 
+// After Effects reports its own failures inside the result payload ({"status":"error",…}
+// or {"success":false,…}). Surface those as tool errors, so a client is not told that a
+// command succeeded when After Effects refused it.
+function isBridgeError(payload: string): boolean {
+  try {
+    const parsed = JSON.parse(payload) as { status?: unknown; success?: unknown; error?: unknown };
+    return parsed.status === "error" || parsed.success === false || typeof parsed.error === "string";
+  } catch {
+    return false;
+  }
+}
+
+// How long a command may take before its tool gives up. Edit commands answer in
+// seconds; a render blocks the panel until the render queue finishes, so it gets a
+// budget measured in minutes instead of the default.
+const DEFAULT_RESULT_TIMEOUT_MS = 20000;
+const RENDER_RESULT_TIMEOUT_MS = 30 * 60 * 1000;
+
+function waitLabel(timeoutMs: number): string {
+  return timeoutMs >= 60000 ? `${Math.round(timeoutMs / 60000)} min` : `${Math.round(timeoutMs / 1000)} s`;
+}
+
+// The file bridge has one command slot and the panel runs only a command whose status is
+// "pending". A second write while the first command is queued or running makes the panel
+// stamp the replacement "completed" without running it, so calls take the slot in turn.
+let bridgeSlot: Promise<void> = Promise.resolve();
+
+class BridgeBusyError extends Error {}
+
+async function withBridgeSlot<T>(body: () => Promise<T>): Promise<T> {
+  const previous = bridgeSlot;
+  let release: () => void = () => {};
+  bridgeSlot = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    await waitForIdleSlot();
+    return await body();
+  } finally {
+    release();
+  }
+}
+
+// A command still pending or running belongs to someone else (a call from a process that has
+// since exited, or a manual run). Waiting covers the moment the panel needs to stamp its last
+// command completed; after that the call is refused rather than overwriting that command.
+async function waitForIdleSlot(timeoutMs: number = 3000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    let status: unknown = null;
+    try {
+      status = (JSON.parse(fs.readFileSync(getCommandFilePath(), "utf8")) as { status?: unknown }).status;
+    } catch {
+      return; // no command file yet
+    }
+    if (status !== "pending" && status !== "running") return;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  throw new BridgeBusyError(
+    "After Effects still has a command it has not finished. This call was not sent, so that " +
+    "command was not overwritten: nothing was lost. Retry once the panel is idle.",
+  );
+}
+
 // Queue one command and wait for its own result. One tool call used to be two
 // (queue, then get-results), which leaked the previous command's payload
 // whenever the caller skipped the second step and made the tools look
 // indistinguishable. Every tool below returns the output of the call it made.
-async function runBridgeTool(command: string, args: Record<string, unknown>): Promise<ToolResponse> {
-  clearResultsFile();
-  writeCommandFile(command, args);
-  const result = await waitForFreshResult(20000, 250);
+async function runBridgeTool(
+  command: string,
+  args: Record<string, unknown>,
+  timeoutMs: number = DEFAULT_RESULT_TIMEOUT_MS,
+): Promise<ToolResponse> {
+  let result: string | null;
+  try {
+    result = await withBridgeSlot(async () => {
+      clearResultsFile();
+      writeCommandFile(command, args);
+      return waitForFreshResult(timeoutMs, 250);
+    });
+  } catch (error) {
+    if (error instanceof BridgeBusyError) return textResult(error.message, true);
+    throw error;
+  }
   if (result === null) {
     return textResult(
-      `No result after 20 s. The MCP Bridge panel is probably not open in After Effects ` +
-      `(Window > mcp-bridge-auto.jsx, with "Auto-run commands" checked), or a dialog is blocking it. ` +
+      `No result after ${waitLabel(timeoutMs)}. The panel is probably not open in After Effects ` +
+      `(Window > Extensions > MCP Bridge, or Window > mcp-bridge-auto.jsx with "Auto-run commands" ` +
+      `checked), a dialog is blocking it, or the command is still running. ` +
       `Command and result files are in ${getAETempDir()}.`,
       true,
     );
   }
-  return textResult(result);
+  return textResult(result, isBridgeError(result));
 }
 
 // Add a resource to expose project compositions
@@ -183,17 +234,24 @@ server.resource(
   "compositions",
   "aftereffects://compositions",
   async (uri) => {
-    // Clear old results, queue the command, and wait for bridge output
-    clearResultsFile();
-    writeCommandFile("listCompositions", {});
-    const result = await waitForBridgeResult("listCompositions", 6000, 250);
+    let result: string | null;
+    try {
+      result = await withBridgeSlot(async () => {
+        clearResultsFile();
+        writeCommandFile("listCompositions", {});
+        return waitForFreshResult(6000, 250);
+      });
+    } catch (error) {
+      if (!(error instanceof BridgeBusyError)) throw error;
+      result = JSON.stringify({ error: error.message });
+    }
 
     return {
       contents: [{
         uri: uri.href,
         mimeType: "application/json",
-        text: result
-      }]
+        text: result ?? JSON.stringify({ error: "No result from After Effects." }),
+      }],
     };
   }
 );
@@ -272,7 +330,7 @@ const LAYER_NAME = z.string().optional().describe("Layer name, exactly as get-la
 
 server.tool(
   "get-project-info",
-  "Report the open After Effects project: name, path, item counts and the active composition.",
+  "Report the open After Effects project: name, path, item counts (compositions, footage, folders, solids), the active composition, and the first 50 project items.",
   {},
   async () => runBridgeTool("getProjectInfo", {})
 );
@@ -286,7 +344,7 @@ server.tool(
 
 server.tool(
   "get-layer-info",
-  "List the layers of a composition (index, name, type, timing, parent, position, effect count), or describe one layer when layerIndex or layerName is given.",
+  "List the layers of a composition (index, name, match name, visibility, 3D and adjustment flags, timing, parent, position, effect count), or describe one layer when layerIndex or layerName is given. Text layers also report their source text.",
   {
     compName: COMPOSITION,
     compIndex: COMPOSITION_INDEX,
@@ -298,7 +356,7 @@ server.tool(
 
 server.tool(
   "get-property-value",
-  "Read one property: its value (at timeInSeconds, default the current time), its expression, and its keyframes. Accepts a plain name ('Position') or a slash path ('Transform/Position', 'Effects/Gaussian Blur/Blurriness').",
+  "Read one property: its value (at timeInSeconds, default the composition's current time), its expression, and its first 100 keyframes. Accepts a plain name ('Position') or a slash path ('Transform/Position', 'Effects/Gaussian Blur/Blurriness').",
   {
     compName: COMPOSITION,
     compIndex: COMPOSITION_INDEX,
@@ -358,7 +416,7 @@ server.tool(
     fontFamily: z.string().optional().describe("Font family (default 'Arial')"),
     alignment: z.enum(["left", "center", "right"]).optional().describe("Paragraph justification (default 'center')"),
     startTime: z.number().optional().describe("Layer start time in seconds"),
-    duration: z.number().positive().optional().describe("Layer duration in seconds; 0 keeps the composition duration")
+    duration: z.number().min(0).optional().describe("Layer duration in seconds (default 5); 0 keeps the composition duration")
   },
   async (args) => runBridgeTool("createTextLayer", args)
 );
@@ -370,14 +428,14 @@ server.tool(
     compName: COMPOSITION,
     shapeType: z.enum(["rectangle", "ellipse", "polygon", "star"]).describe("Shape to draw"),
     position: z.array(z.number()).length(2).optional().describe("[x, y] position in pixels"),
-    size: z.array(z.number()).length(2).optional().describe("[width, height] in pixels (default [200, 200])"),
+    size: z.array(z.number()).length(2).optional().describe("[width, height] in pixels for a rectangle or ellipse, or the outer diameter for a polygon or star (default [200, 200])"),
     fillColor: z.array(z.number()).length(3).optional().describe("[r, g, b] fill colour, 0-1"),
     strokeColor: z.array(z.number()).length(3).optional().describe("[r, g, b] stroke colour, 0-1"),
     strokeWidth: z.number().min(0).optional().describe("Stroke width in pixels; 0 means no stroke"),
     points: z.number().int().min(3).optional().describe("Number of points for polygon or star (default 5)"),
     name: z.string().optional().describe("Layer name (default 'Shape Layer')"),
     startTime: z.number().optional().describe("Layer start time in seconds"),
-    duration: z.number().positive().optional().describe("Layer duration in seconds")
+    duration: z.number().min(0).optional().describe("Layer duration in seconds (default 5); 0 keeps the composition duration")
   },
   async (args) => runBridgeTool("createShapeLayer", args)
 );
@@ -393,7 +451,7 @@ server.tool(
     position: z.array(z.number()).length(2).optional().describe("[x, y] position in pixels"),
     isAdjustment: z.boolean().optional().describe("Create an adjustment layer instead of a solid"),
     startTime: z.number().optional().describe("Layer start time in seconds"),
-    duration: z.number().positive().optional().describe("Layer duration in seconds")
+    duration: z.number().min(0).optional().describe("Layer duration in seconds (default 5); 0 keeps the composition duration")
   },
   async (args) => runBridgeTool("createSolidLayer", args)
 );
@@ -406,8 +464,8 @@ server.tool(
     name: z.string().optional().describe("Camera name (default 'Camera')"),
     zoom: z.number().positive().optional().describe("Zoom in pixels (default 1777.78, about 50mm)"),
     position: z.array(z.number()).length(3).optional().describe("[x, y, z] camera position"),
-    pointOfInterest: z.array(z.number()).length(3).optional().describe("[x, y, z] point of interest; ignored for a one-node camera"),
-    oneNode: z.boolean().optional().describe("Create a one-node camera with no point of interest")
+    pointOfInterest: z.array(z.number()).length(3).optional().describe("[x, y, z] point of interest; not set when oneNode is true"),
+    oneNode: z.boolean().optional().describe("Turn auto-orientation off. A scripted camera always keeps a Point of Interest (After Effects cannot script a one-node camera), so pointOfInterest is then left at its default")
   },
   async (args) => runBridgeTool("createCamera", args)
 );
@@ -466,11 +524,11 @@ server.tool(
 
 server.tool(
   "batch-set-layer-properties",
-  "Apply property changes to several layers in one call. Each operation takes the same keys as set-layer-properties plus layerIndex or layerName.",
+  "Apply position, scale, rotation, opacity, 3D, blend mode and timing changes to several layers in one call. Each operation needs layerIndex or layerName. Text, track matte, enabled and duration belong to set-layer-properties, not here.",
   {
     compName: COMPOSITION,
     operations: z.array(z.record(z.string(), z.unknown())).min(1).describe(
-      "Array of { layerIndex | layerName, position?, scale?, rotation?, opacity?, threeDLayer?, trackMatteType?, blendMode?, startTime?, outPoint? }"
+      "Array of { layerIndex | layerName, position?, scale?, rotation?, opacity?, threeDLayer?, blendMode?, startTime?, outPoint? }"
     )
   },
   async (args) => runBridgeTool("batchSetLayerProperties", args)
@@ -478,7 +536,7 @@ server.tool(
 
 server.tool(
   "set-layer-mask",
-  "Create a mask on a layer, or modify an existing mask when maskIndex is given.",
+  "Create a mask on a layer, or reshape and restyle an existing one when maskIndex is given. Either maskPath or maskRect is required; maskMode, maskFeather, maskOpacity, maskExpansion and maskName are applied to the same mask.",
   {
     compName: COMPOSITION,
     layerIndex: LAYER_INDEX,
@@ -504,13 +562,13 @@ server.tool(
 
 server.tool(
   "set-layer-keyframe",
-  "Set a keyframe on a layer property at a given time, creating or replacing the key at that time.",
+  "Set a keyframe on a layer property at a given time, creating or replacing the key at that time. A property with no keyframes first gets one at the current time, so its current value is kept at the front. The property is matched by display name in Transform, then Effects, then Text (no slash paths).",
   {
     compIndex: z.number().int().positive().describe("Project item index of the composition, from list-compositions."),
     layerIndex: z.number().int().positive().describe("1-based layer index, from get-layer-info."),
     propertyName: z.string().describe("Property to keyframe, e.g. 'Position', 'Scale', 'Rotation', 'Opacity'."),
     timeInSeconds: z.number().describe("Time of the keyframe in seconds."),
-    value: z.unknown().describe("Keyframe value: [x, y] for Position, [w, h] for Scale, a number for Rotation or Opacity.")
+    value: z.union([z.number(), z.array(z.number()), z.string(), z.boolean()]).describe("Keyframe value: [x, y] for Position, [w, h] for Scale, a number for Rotation or Opacity.")
   },
   async (args) => runBridgeTool("setLayerKeyframe", args)
 );
@@ -552,7 +610,6 @@ server.tool(
     layerIndex: z.number().int().positive().describe("1-based layer index, from get-layer-info."),
     effectName: z.string().optional().describe("Display name, e.g. 'Gaussian Blur'."),
     effectMatchName: z.string().optional().describe("Internal match name, e.g. 'ADBE Gaussian Blur 2'. Takes precedence over effectName."),
-    effectCategory: z.string().optional().describe("Optional category used to narrow the lookup."),
     presetPath: z.string().optional().describe("Absolute path to an .ffx preset to apply instead."),
     effectSettings: z.record(z.string(), z.unknown()).optional().describe("Effect parameters keyed by property name, e.g. { 'Blurriness': 25 }.")
   },
@@ -576,7 +633,7 @@ server.tool(
       "cinematic-look",
       "text-pop"
     ]).describe("Template to apply."),
-    customSettings: z.record(z.string(), z.unknown()).optional().describe("Settings that override the template defaults.")
+    customSettings: z.record(z.string(), z.unknown()).optional().describe("Overrides keyed by the template's own setting names, e.g. { blurriness } for gaussian-blur, { hue, lightness, saturation } for color-balance, { color, opacity, direction, distance, softness } for drop-shadow, { threshold, radius, intensity } for glow.")
   },
   async (args) => runBridgeTool("applyEffectTemplate", args)
 );
@@ -585,15 +642,15 @@ server.tool(
 
 server.tool(
   "render-composition",
-  "Render a composition to a file through the render queue, or write a single PNG frame when frameAtTime is given. Returns the output path.",
+  "Render a composition through the render queue, or write one PNG frame when frameAtTime is given. Reports the file that was actually written: the output module template decides the extension, so a requested .mov can land as .mp4.",
   {
     compName: COMPOSITION,
     compIndex: COMPOSITION_INDEX,
-    outputPath: z.string().optional().describe("Absolute output file path the render queue writes to. Required for a still frame."),
-    outputModuleTemplate: z.string().optional().describe("Installed output module template name, e.g. 'Lossless' or 'H.264'. Defaults to the template already on the item."),
+    outputPath: z.string().optional().describe("Output file path. Required for a still frame, where it must end in .png; for a render it is handed to the output module, which may adjust the name."),
+    outputModuleTemplate: z.string().optional().describe("Installed output module template name, e.g. 'Lossless' or 'H.264'. Defaults to the project's default template, which the new render queue item starts with."),
     frameAtTime: z.number().optional().describe("Render just this time as a PNG instead of the whole composition.")
   },
-  async (args) => runBridgeTool("renderComposition", args)
+  async (args) => runBridgeTool("renderComposition", args, RENDER_RESULT_TIMEOUT_MS)
 );
 
 // Escape hatch, deliberately separate: this runs code the caller wrote, so the
