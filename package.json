@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "MCP server for Adobe After Effects",
   "author": "Rakeshcool",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Rakeshcool/aftereffects_live_mcp.git"
