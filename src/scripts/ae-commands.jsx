@@ -1307,6 +1307,7 @@ function listCompositions() {
         // Check if the item is a composition
         if (item instanceof CompItem) {
             result.compositions.push({
+                index: i,
                 id: item.id,
                 name: item.name,
                 duration: item.duration,
@@ -1321,38 +1322,327 @@ function listCompositions() {
     return JSON.stringify(result, null, 2);
 }
 
-function getLayerInfo() {
-    var project = app.project;
-    var result = {
-        layers: []
-    };
-    
-    // Get the active composition
-    var activeComp = null;
-    if (app.project.activeItem instanceof CompItem) {
-        activeComp = app.project.activeItem;
-    } else {
-        return JSON.stringify({ error: "No active composition" }, null, 2);
-    }
-    
-    // Loop through layers in the active composition
-    for (var i = 1; i <= activeComp.numLayers; i++) {
-        var layer = activeComp.layer(i);
-        var layerInfo = {
-            index: layer.index,
-            name: layer.name,
-            enabled: layer.enabled,
-            locked: layer.locked,
-            threeDLayer: layer.threeDLayer,
-            position: layer.property("Position").value,
-            inPoint: layer.inPoint,
-            outPoint: layer.outPoint
+function getLayerInfo(args) {
+    try {
+        var comp = mcpResolveComp(args);
+        var result = {
+            status: "success",
+            composition: comp.name,
+            width: comp.width,
+            height: comp.height,
+            duration: comp.duration,
+            frameRate: comp.frameRate,
+            numLayers: comp.numLayers,
+            layers: []
         };
-        
-        result.layers.push(layerInfo);
+
+        // A single layer can be requested by index or name; otherwise every
+        // layer is listed, which is what an agent needs to plan an edit.
+        var only = null;
+        if ((args && args.layerIndex !== undefined && args.layerIndex !== null) || (args && args.layerName)) {
+            only = mcpResolveLayer(comp, args);
+        }
+
+        var count = only ? 1 : comp.numLayers;
+        for (var i = 1; i <= count; i++) {
+            var layer = only ? only : comp.layer(i);
+            var info = {
+                index: layer.index,
+                name: layer.name,
+                matchName: layer.matchName,
+                enabled: layer.enabled,
+                locked: layer.locked,
+                threeDLayer: !!layer.threeDLayer,
+                adjustmentLayer: !!layer.adjustmentLayer,
+                inPoint: layer.inPoint,
+                outPoint: layer.outPoint,
+                parent: layer.parent ? layer.parent.name : null,
+                numEffects: 0
+            };
+            try { info.position = layer.property("Transform").property("Position").value; } catch (positionError) {}
+            try { info.numEffects = layer.property("ADBE Effect Parade").numProperties; } catch (effectsError) {}
+            if (layer instanceof TextLayer) {
+                try { info.text = layer.property("ADBE Text Properties").property("ADBE Text Document").value.text; } catch (textError) {}
+            }
+            result.layers.push(info);
+        }
+
+        return JSON.stringify(result, null, 2);
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: mcpErrorMessage(error) }, null, 2);
     }
-    
-    return JSON.stringify(result, null, 2);
+}
+
+function mcpResolveComp(args) {
+    args = args || {};
+    var i;
+    if (args.compName) {
+        for (i = 1; i <= app.project.numItems; i++) {
+            var named = app.project.item(i);
+            if (named instanceof CompItem && named.name === args.compName) { return named; }
+        }
+        throw new Error("Composition not found: '" + args.compName + "'. Use list-compositions for the exact name.");
+    }
+    if (args.compIndex !== undefined && args.compIndex !== null) {
+        var indexed = null;
+        try { indexed = app.project.item(args.compIndex); } catch (e) { indexed = null; }
+        if (!indexed || !(indexed instanceof CompItem)) {
+            throw new Error("Project item " + args.compIndex + " is not a composition. Use list-compositions for the index.");
+        }
+        return indexed;
+    }
+    if (app.project.activeItem instanceof CompItem) { return app.project.activeItem; }
+    throw new Error("No composition given and none open: pass compName or compIndex.");
+}
+
+function mcpResolveLayer(comp, args) {
+    args = args || {};
+    var i;
+    if (args.layerName) {
+        for (i = 1; i <= comp.numLayers; i++) {
+            if (comp.layer(i).name === args.layerName) { return comp.layer(i); }
+        }
+        throw new Error("Layer not found: '" + args.layerName + "' in '" + comp.name + "'. Use get-layer-info for the exact name.");
+    }
+    if (args.layerIndex === undefined || args.layerIndex === null) {
+        throw new Error("No layer given: pass layerName or layerIndex.");
+    }
+    if (args.layerIndex < 1 || args.layerIndex > comp.numLayers) {
+        throw new Error("Layer index out of bounds: " + args.layerIndex + " ('" + comp.name + "' has " + comp.numLayers + " layers).");
+    }
+    return comp.layer(args.layerIndex);
+}
+
+function mcpFindProperty(layer, propertyName) {
+    if (!layer || !propertyName) { throw new Error("propertyName is required."); }
+    var parts = String(propertyName).split("/");
+    var node = layer;
+    for (var p = 0; p < parts.length; p++) {
+        var name = parts[p].replace(/^\s+/, "").replace(/\s+$/, "");
+        if (!name) { continue; }
+        if (!node || typeof node.property !== "function") {
+            throw new Error("'" + name + "' cannot be reached: its parent has no properties.");
+        }
+        var found = null;
+        try { found = node.property(name); } catch (e) { found = null; }
+        if (!found) { found = mcpFindPropertyByAlias(node, name); }
+        if (!found) { found = mcpFindChildProperty(node, name); }
+        if (!found) {
+            throw new Error("Property not found: '" + propertyName + "' (no '" + name + "' on '" + String(node.name || "layer") + "').");
+        }
+        node = found;
+    }
+    return node;
+}
+
+function mcpFindPropertyByAlias(node, name) {
+    var aliases = {
+        "effect": ["ADBE Effect Parade"],
+        "effects": ["ADBE Effect Parade"],
+        "text": ["ADBE Text Properties"],
+        "masks": ["ADBE Mask Parade"],
+        "contents": ["ADBE Root Vectors Group"]
+    };
+    var names = aliases[String(name).toLowerCase()];
+    if (!names) { return null; }
+    for (var i = 0; i < names.length; i++) {
+        var alias = null;
+        try { alias = node.property(names[i]); } catch (e) { alias = null; }
+        if (alias) { return alias; }
+    }
+    return null;
+}
+
+function mcpFindChildProperty(group, name) {
+    var count = 0;
+    try { count = group.numProperties || 0; } catch (e) { count = 0; }
+    var wanted = String(name).toLowerCase();
+    for (var i = 1; i <= count; i++) {
+        var child = null;
+        try { child = group.property(i); } catch (e) { child = null; }
+        if (child && String(child.name).toLowerCase() === wanted) { return child; }
+    }
+    return null;
+}
+
+function mcpErrorMessage(error) {
+    var message = (error && error.toString) ? error.toString() : String(error);
+    if (error && error.line) { message += " (line " + error.line + ")"; }
+    return message;
+}
+
+function getPropertyValue(args) {
+    try {
+        var comp = mcpResolveComp(args);
+        var layer = mcpResolveLayer(comp, args);
+        var property = mcpFindProperty(layer, args.propertyName);
+        var timeInSeconds = (args.timeInSeconds !== undefined && args.timeInSeconds !== null) ? args.timeInSeconds : comp.time;
+        var result = {
+            status: "success",
+            composition: comp.name,
+            layer: layer.name,
+            layerIndex: layer.index,
+            property: property.name,
+            matchName: property.matchName,
+            timeInSeconds: timeInSeconds,
+            numKeys: property.numKeys || 0
+        };
+        try {
+            if (property.propertyValueType === PropertyValueType.NO_VALUE) {
+                result.value = null;
+            } else if (property.numKeys > 0) {
+                result.value = property.valueAtTime(timeInSeconds, false);
+            } else {
+                result.value = property.value;
+            }
+        } catch (valueError) {
+            result.value = null;
+            result.valueError = mcpErrorMessage(valueError);
+        }
+        try {
+            result.canVaryOverTime = !!property.canVaryOverTime;
+            result.isTimeVarying = !!property.isTimeVarying;
+        } catch (flagError) {
+            // Not every property reports these; the value above is still useful.
+        }
+        try {
+            if (property.canSetExpression) {
+                result.expressionEnabled = !!property.expressionEnabled;
+                result.expression = property.expression || "";
+            }
+        } catch (expressionError) {
+            // Expressions are unsupported on this property.
+        }
+        if (result.numKeys > 0) {
+            var keyframes = [];
+            var limit = result.numKeys < 100 ? result.numKeys : 100;
+            for (var i = 1; i <= limit; i++) {
+                var keyframe = { index: i, time: property.keyTime(i) };
+                try { keyframe.value = property.keyValue(i); } catch (keyError) { keyframe.value = null; }
+                keyframes.push(keyframe);
+            }
+            result.keyframes = keyframes;
+            if (result.numKeys > limit) { result.keyframesTruncated = true; }
+        }
+        return JSON.stringify(result, null, 2);
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: mcpErrorMessage(error) }, null, 2);
+    }
+}
+
+function deleteKeyframe(args) {
+    try {
+        var comp = mcpResolveComp(args);
+        var layer = mcpResolveLayer(comp, args);
+        var property = mcpFindProperty(layer, args.propertyName);
+        var numKeys = property.numKeys || 0;
+        if (!numKeys) { throw new Error("'" + property.name + "' has no keyframes."); }
+        if (args.all === true) {
+            while (property.numKeys > 0) { property.removeKey(1); }
+            return JSON.stringify({
+                status: "success",
+                composition: comp.name,
+                layer: layer.name,
+                property: property.name,
+                removedKeyframes: numKeys,
+                remainingKeyframes: 0
+            }, null, 2);
+        }
+        if (args.timeInSeconds === undefined || args.timeInSeconds === null) {
+            throw new Error("Pass timeInSeconds, or all:true to remove every keyframe.");
+        }
+        var nearest = 1;
+        var best = Math.abs(property.keyTime(1) - args.timeInSeconds);
+        for (var i = 2; i <= property.numKeys; i++) {
+            var distance = Math.abs(property.keyTime(i) - args.timeInSeconds);
+            if (distance < best) { best = distance; nearest = i; }
+        }
+        var removedTime = property.keyTime(nearest);
+        property.removeKey(nearest);
+        return JSON.stringify({
+            status: "success",
+            composition: comp.name,
+            layer: layer.name,
+            property: property.name,
+            requestedTimeInSeconds: args.timeInSeconds,
+            removedTimeInSeconds: removedTime,
+            remainingKeyframes: property.numKeys
+        }, null, 2);
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: mcpErrorMessage(error) }, null, 2);
+    }
+}
+
+function renderComposition(args) {
+    try {
+        var comp = mcpResolveComp(args);
+        if (args.frameAtTime !== undefined && args.frameAtTime !== null) {
+            if (!args.outputPath) { throw new Error("outputPath is required when frameAtTime is set."); }
+            if (!/\.png$/i.test(args.outputPath)) { throw new Error("A still frame is written as PNG: outputPath must end in .png."); }
+            var frameFile = new File(args.outputPath);
+            comp.saveFrameToPng(args.frameAtTime, frameFile);
+            return JSON.stringify({
+                status: "success",
+                mode: "frame",
+                composition: comp.name,
+                timeInSeconds: args.frameAtTime,
+                outputPath: frameFile.fsName
+            }, null, 2);
+        }
+
+        var item = app.project.renderQueue.items.add(comp);
+        var outputModule = item.outputModule(1);
+        if (args.outputModuleTemplate) {
+            try { outputModule.applyTemplate(args.outputModuleTemplate); }
+            catch (templateError) { throw new Error("Unknown output module template '" + args.outputModuleTemplate + "': " + mcpErrorMessage(templateError)); }
+        }
+        if (args.outputPath) { outputModule.file = new File(args.outputPath); }
+        if (!outputModule.file) {
+            item.remove();
+            throw new Error("No output file: pass outputPath, or choose a template whose output module has a default path.");
+        }
+
+        var expectedPath = outputModule.file.fsName;
+        app.project.renderQueue.render();
+        var status = mcpRenderStatusName(item.status);
+        if (status !== "done") {
+            // Leave the failed item in the queue so the user can inspect it.
+            return JSON.stringify({
+                status: "error",
+                mode: "render",
+                composition: comp.name,
+                renderQueueStatus: status,
+                outputPath: expectedPath,
+                message: "The render did not finish. The render queue item was left in place for inspection."
+            }, null, 2);
+        }
+        item.remove();
+        return JSON.stringify({
+            status: "success",
+            mode: "render",
+            composition: comp.name,
+            renderQueueStatus: status,
+            outputPath: expectedPath,
+            outputModuleTemplate: args.outputModuleTemplate || null,
+            message: "Rendered and removed the render queue item; the output file was kept."
+        }, null, 2);
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: mcpErrorMessage(error) }, null, 2);
+    }
+}
+
+function mcpRenderStatusName(status) {
+    switch (status) {
+        case RQItemStatus.WILL_CONTINUE: return "willContinue";
+        case RQItemStatus.RENDERING: return "rendering";
+        case RQItemStatus.USER_STOPPED: return "userStopped";
+        case RQItemStatus.ERR_STOPPED: return "errorStopped";
+        case RQItemStatus.DONE: return "done";
+        case RQItemStatus.QUEUED: return "queued";
+        case RQItemStatus.UNQUEUED: return "unqueued";
+        case RQItemStatus.NEEDS_OUTPUT: return "needsOutput";
+        default: return String(status);
+    }
 }
 
 function runScriptFile(args) {
@@ -1395,7 +1685,7 @@ function escapeJsonString(value) {
   var COMMANDS = {
     "get-project-info": function (args) { return getProjectInfo(); },
     "list-compositions": function (args) { return listCompositions(); },
-    "get-layer-info": function (args) { return getLayerInfo(); },
+    "get-layer-info": function (args) { return getLayerInfo(args); },
     "create-composition": function (args) { return createComposition(args); },
     "create-text-layer": function (args) { return createTextLayer(args); },
     "create-shape-layer": function (args) { return createShapeLayer(args); },
@@ -1413,6 +1703,9 @@ function escapeJsonString(value) {
     "apply-effect-template": function (args) { return applyEffectTemplate(args); },
     "run-script-file": function (args) { return runScriptFile(args); },
     "test-bridge-effects": function (args) { return bridgeTestEffects(args); },
+    "get-property-value": function (args) { return getPropertyValue(args); },
+    "delete-keyframe": function (args) { return deleteKeyframe(args); },
+    "render-composition": function (args) { return renderComposition(args); },
   };
 
   /**

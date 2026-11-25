@@ -154,7 +154,7 @@ You can create new compositions with custom settings:
 
 Example MCP tool usage (for developers):
 ```javascript
-mcp_aftereffects_create_composition({
+callTool("create-composition", {
   name: "My Composition", 
   width: 1920, 
   height: 1080, 
@@ -216,7 +216,7 @@ npm run install-cep        # builds the command library, installs into %APPDATA%
 Restart After Effects, then open **Window → Extensions → MCP Bridge**. The panel connects to
 `ws://127.0.0.1:7800/ws/connector` (editable, with an optional token) and registers as
 **After Effects (panel)** — id `after-effects-panel`. Approve it once in the bridge panel's *Applications*
-view; its 20 tools then appear in `/api/tools`, `/mcp` and model requests. The id is deliberately distinct
+view; its 23 tools then appear in `/api/tools`, `/mcp` and model requests. The id is deliberately distinct
 from the `after-effects` stdio server: the bridge refuses two servers with the same id, so both transports
 can be installed while the folder bridge is retired.
 
@@ -226,7 +226,7 @@ can be installed while the folder bridge is retired.
 | --- | --- |
 | `cep/CSXS/manifest.xml` | CEP manifest, AE host range, panel entry point |
 | `cep/index.html`, `css/panel.css`, `js/main.js` | panel UI, WebSocket client, registration, call dispatch |
-| `cep/js/tools.js` | the tool catalog announced to the bridge (20 tools, permissive schemas) |
+| `cep/js/tools.js` | the tool catalog announced to the bridge (23 tools, permissive schemas) |
 | `cep/jsx/host.jsx` | ExtendScript bridge: loads the command library, wraps calls in an undo group |
 | `src/scripts/ae-commands.jsx` | **generated** — the command implementations, shared with the ScriptUI panel |
 | `scripts/build-commands.mjs` | extracts those functions from `mcp-bridge-auto.jsx` |
@@ -240,29 +240,38 @@ regenerates it and fails loudly if a command disappears or ScriptUI construction
 ### Differences from the stdio server
 
 - Tools are named after the commands the panel implements (`create-composition`, `set-layer-keyframe`, …),
-  which is a superset of the older `run-script`/`get-results` mechanics.
+  the same kebab-case names the stdio server exposes. Every tool queues its command and returns that
+  command's own result, so there is no `get-results` step and no way to read a previous call's output.
 - A call runs inside `app.beginUndoGroup("MCP: …")`, so one tool call is one undo step.
 - The panel must be open in AE: when it closes, the server reports `disconnected` and its tools leave the
   catalog; reopening the panel re-registers and reconnects without another approval.
 
 ## 🛠 Available MCP Tools
 
-| Command                     | Description                            |
-|-----------------------------|----------------------------------------|
-| `create-composition`        | Create a new composition               |
-| `run-script`                | Run a JS script inside AE              |
-| `get-results`               | Get script results                     |
-| `get-help`                  | Help for available commands            |
-| `setLayerKeyframe`          | Add keyframe to layer property         |
-| `setLayerExpression`        | Add/remove expressions from properties|
-| `setLayerProperties`        | Set layer properties (position, scale, rotation, opacity, blendMode, threeDLayer, trackMatteType, enabled, etc.) |
-| `batchSetLayerProperties`  | Apply properties to multiple layers   |
-| `getLayerInfo`              | Get layer info (position, 3D status)  |
-| `createCamera`              | Create camera layer                   |
-| `createNullObject`          | Create null object for animation      |
-| `duplicateLayer`            | Duplicate a layer                     |
-| `deleteLayer`               | Delete a layer                        |
-| `setLayerMask`              | Create/modify layer masks             |
+| Tool | Description |
+| --- | --- |
+| `get-project-info` | Project name, path, item counts and active composition |
+| `list-compositions` | Index, name, size, duration, frame rate and layer count of every comp |
+| `get-layer-info` | Layers of a composition, or one layer |
+| `get-property-value` | Property value, expression and keyframes; slash paths such as `Transform/Position` |
+| `create-composition` | Create a composition |
+| `set-composition-properties` | Change duration, frame rate or size |
+| `create-text-layer` | Add a text layer |
+| `create-shape-layer` | Add a shape layer (rectangle, ellipse, polygon, star) |
+| `create-solid-layer` | Add a solid or adjustment layer |
+| `create-camera` | Add a camera layer |
+| `duplicate-layer` | Duplicate a layer |
+| `delete-layer` | Delete a layer |
+| `set-layer-properties` | Transform, text, blending and timing properties |
+| `batch-set-layer-properties` | The same property changes across several layers |
+| `set-layer-mask` | Create or modify a mask |
+| `set-layer-keyframe` | Set a keyframe |
+| `delete-keyframe` | Remove the keyframe nearest a time, or all of them |
+| `set-layer-expression` | Set or remove an expression |
+| `apply-effect` | Apply one effect |
+| `apply-effect-template` | Apply a named effect template |
+| `render-composition` | Render to a file, or one PNG frame |
+| `run-script-file` | Escape hatch: run a .jsx file |
 
 ## 👨‍💻 For Developers
 

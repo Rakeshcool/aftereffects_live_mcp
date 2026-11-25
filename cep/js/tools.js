@@ -32,8 +32,8 @@
     },
     {
       name: "get-layer-info",
-      description: "Describe the layers of a composition, or the selected layer when no index is given.",
-      inputSchema: object({ compIndex: NUMBER, layerIndex: NUMBER }),
+      description: "Describe the layers of a composition, or a single layer when layerIndex or layerName is given.",
+      inputSchema: object({ compName: STRING, compIndex: NUMBER, layerIndex: NUMBER, layerName: STRING }),
     },
     {
       name: "create-composition",
@@ -140,6 +140,27 @@
       name: "test-bridge-effects",
       description: "Apply a set of test effects to verify the connection between the panel and After Effects.",
       inputSchema: object({}),
+    },
+    {
+      name: "get-property-value",
+      description: "Read a property's value, expression and keyframes; accepts a slash path such as 'Transform/Position'.",
+      inputSchema: object(
+        { compName: STRING, compIndex: NUMBER, layerIndex: NUMBER, layerName: STRING, propertyName: STRING, timeInSeconds: NUMBER },
+        ["propertyName"],
+      ),
+    },
+    {
+      name: "delete-keyframe",
+      description: "Remove the keyframe nearest a given time, or every keyframe on the property with all:true.",
+      inputSchema: object(
+        { compName: STRING, compIndex: NUMBER, layerIndex: NUMBER, layerName: STRING, propertyName: STRING, timeInSeconds: NUMBER, all: { type: "boolean" } },
+        ["propertyName"],
+      ),
+    },
+    {
+      name: "render-composition",
+      description: "Render a composition to a file, or write a single PNG frame when frameAtTime is given.",
+      inputSchema: object({ compName: STRING, compIndex: NUMBER, outputPath: STRING, outputModuleTemplate: STRING, frameAtTime: NUMBER }),
     },
   ];
 })(typeof window !== "undefined" ? window : this);

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 // Create an MCP server
 const server = new McpServer({
   name: "AfterEffectsServer",
-  version: "1.0.0"
+  version: "1.1.0"
 });
 
 // ES Modules replacement for __dirname
@@ -19,7 +19,6 @@ const __dirname = path.dirname(__filename);
 
 // Define paths
 const SCRIPTS_DIR = path.join(__dirname, "scripts");
-const TEMP_DIR = path.join(__dirname, "temp");
 
 // Resolve the folder the AE panel calls Folder.myDocuments. On Windows it is
 // commonly redirected (OneDrive, enterprise profile), while os.homedir() +
@@ -65,47 +64,6 @@ function getAETempDir(): string {
     fs.mkdirSync(bridgeDir, { recursive: true });
   }
   return bridgeDir;
-}
-
-// Headless CLI execution has been removed. All interactions are routed through the Bridge panel.
-
-// Helper function to read results from After Effects temp file
-function readResultsFromTempFile(): string {
-  try {
-    const tempFilePath = path.join(getAETempDir(), 'ae_mcp_result.json');
-    
-    // Add debugging info
-    console.error(`Checking for results at: ${tempFilePath}`);
-    
-    if (fs.existsSync(tempFilePath)) {
-      // Get file stats to check modification time
-      const stats = fs.statSync(tempFilePath);
-      console.error(`Result file exists, last modified: ${stats.mtime.toISOString()}`);
-      
-      const content = fs.readFileSync(tempFilePath, 'utf8');
-      console.error(`Result file content length: ${content.length} bytes`);
-      
-      // If the result file is older than 30 seconds, warn the user
-      const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
-      if (stats.mtime < thirtySecondsAgo) {
-        console.error(`WARNING: Result file is older than 30 seconds. After Effects may not be updating results.`);
-        return JSON.stringify({ 
-          warning: "Result file appears to be stale (not recently updated).",
-          message: "This could indicate After Effects is not properly writing results or the MCP Bridge Auto panel isn't running.",
-          lastModified: stats.mtime.toISOString(),
-          originalContent: content
-        });
-      }
-      
-      return content;
-    } else {
-      console.error(`Result file not found at: ${tempFilePath}`);
-      return JSON.stringify({ error: "No results file found. Please run a script in After Effects first." });
-    }
-  } catch (error) {
-    console.error("Error reading results file:", error);
-    return JSON.stringify({ error: `Failed to read results: ${String(error)}` });
-  }
 }
 
 // Helper to wait for a fresh result produced by a specific command
@@ -180,19 +138,44 @@ function writeCommandFile(command: string, args: Record<string, any> = {}): void
 function clearResultsFile(): void {
   try {
     const resultFile = path.join(getAETempDir(), 'ae_mcp_result.json');
-    
+
     // Write a placeholder message to indicate the file is being reset
     const resetData = {
       status: "waiting",
       message: "Waiting for new result from After Effects...",
       timestamp: new Date().toISOString()
     };
-    
+
     fs.writeFileSync(resultFile, JSON.stringify(resetData, null, 2));
     console.error(`Results file cleared at ${resultFile}`);
   } catch (error) {
     console.error("Error clearing results file:", error);
   }
+}
+
+type ToolResponse = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
+
+function textResult(text: string, isError = false): ToolResponse {
+  return { content: [{ type: "text", text }], isError };
+}
+
+// Queue one command and wait for its own result. One tool call used to be two
+// (queue, then get-results), which leaked the previous command's payload
+// whenever the caller skipped the second step and made the tools look
+// indistinguishable. Every tool below returns the output of the call it made.
+async function runBridgeTool(command: string, args: Record<string, unknown>): Promise<ToolResponse> {
+  clearResultsFile();
+  writeCommandFile(command, args);
+  const result = await waitForFreshResult(20000, 250);
+  if (result === null) {
+    return textResult(
+      `No result after 20 s. The MCP Bridge panel is probably not open in After Effects ` +
+      `(Window > mcp-bridge-auto.jsx, with "Auto-run commands" checked), or a dialog is blocking it. ` +
+      `Command and result files are in ${getAETempDir()}.`,
+      true,
+    );
+  }
+  return textResult(result);
 }
 
 // Add a resource to expose project compositions
@@ -212,154 +195,6 @@ server.resource(
         text: result
       }]
     };
-  }
-);
-
-// Add a tool for running read-only scripts
-server.tool(
-  "run-script",
-  "Run a read-only script in After Effects",
-  {
-    script: z.string().describe("Name of the predefined script to run"),
-    parameters: z.record(z.string(), z.unknown()).optional().describe("Optional parameters for the script")
-  },
-  async ({ script, parameters = {} }) => {
-    // Validate that script is safe (only allow predefined scripts)
-    const allowedScripts = [
-      "listCompositions", 
-      "getProjectInfo", 
-      "getLayerInfo", 
-      "createComposition",
-      "createTextLayer",
-      "createShapeLayer",
-      "createSolidLayer",
-      "setLayerProperties",
-      "setLayerKeyframe",
-      "setLayerExpression",
-      "applyEffect",
-      "applyEffectTemplate",
-      "test-animation",
-      "bridgeTestEffects",
-      "createCamera",
-      "batchSetLayerProperties",
-      "setCompositionProperties",
-      "duplicateLayer",
-      "deleteLayer",
-      "setLayerMask"
-    ];
-    
-    if (!allowedScripts.includes(script)) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: Script "${script}" is not allowed. Allowed scripts are: ${allowedScripts.join(", ")}`
-          }
-        ],
-        isError: true
-      };
-    }
-
-    try {
-      // Clear any stale result data
-      clearResultsFile();
-      
-      // Write command to file for After Effects to pick up
-      writeCommandFile(script, parameters);
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Command to run "${script}" has been queued.\n` +
-                  `Please ensure the "MCP Bridge Auto" panel is open in After Effects.\n` +
-                  `Use the "get-results" tool after a few seconds to check for results.`
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error queuing command: ${String(error)}`
-          }
-        ],
-        isError: true
-      };
-    }
-  }
-);
-
-// Run a caller-supplied .jsx on the AE machine. Deliberately a separate tool
-// rather than another entry in run-script's whitelist: this executes code the
-// caller wrote, so it must be grantable/deniable on its own in the bridge's
-// per-tool permissions instead of hiding among the read-only commands.
-server.tool(
-  "run-script-file",
-  "Run a .jsx/.jsxbin file on disk inside After Effects with full ExtendScript access and return its result. Needs the MCP Bridge panel open with Auto-run enabled.",
-  {
-    path: z.string().describe("Absolute path to a .jsx or .jsxbin file on the machine running After Effects")
-  },
-  async ({ path: scriptPath }) => {
-    const filePath = path.resolve(scriptPath);
-    if (!/\.jsx(bin)?$/i.test(filePath)) {
-      return { content: [{ type: "text", text: `Error: "${filePath}" is not a .jsx or .jsxbin file.` }], isError: true };
-    }
-    if (!fs.existsSync(filePath)) {
-      return { content: [{ type: "text", text: `Error: script not found at ${filePath}` }], isError: true };
-    }
-
-    clearResultsFile();
-    writeCommandFile("runScriptFile", { path: filePath });
-
-    // The panel polls every 2 s. A closed panel, or a modal dialog in AE, never
-    // answers, so fail with the fix instead of parking the caller for the whole
-    // MCP timeout.
-    const result = await waitForFreshResult(20000, 250);
-    if (result === null) {
-      return {
-        content: [{
-          type: "text",
-          text: `No result after 20 s. The MCP Bridge panel is probably not open in After Effects ` +
-                `(Window > mcp-bridge-auto.jsx, with "Auto-run commands" checked), or a dialog is blocking it. ` +
-                `Command and result files are in ${getAETempDir()}.`
-        }],
-        isError: true
-      };
-    }
-
-    return { content: [{ type: "text", text: result }] };
-  }
-);
-
-// Add a tool to get the results from the last script execution
-server.tool(
-  "get-results",
-  "Get results from the last script executed in After Effects",
-  {},
-  async () => {
-    try {
-      const result = readResultsFromTempFile();
-      return {
-        content: [
-          {
-            type: "text",
-            text: result
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error getting results: ${String(error)}`
-          }
-        ],
-        isError: true
-      };
-    }
   }
 );
 
@@ -398,7 +233,6 @@ server.prompt(
   }
 );
 
-// Add a prompt for creating compositions
 server.prompt(
   "create-composition",
   "Create a new composition with specified settings",
@@ -415,631 +249,370 @@ server.prompt(
   }
 );
 
-// Add a tool to provide help and instructions
+// ---------------------------------------------------------------------------
+// Tool surface
+//
+// Every tool is kebab-case and named after the After Effects command it runs,
+// the same names the CEP panel announces, so a name maps one-to-one to a
+// capability. There is exactly one tool per capability: the former duplicate
+// pairs (apply-effect vs mcp_aftereffects_applyEffect, get-help vs the effects
+// help) and the debug-only tools (run-bridge-test, test-animation) are gone.
+// ---------------------------------------------------------------------------
+
+const COMPOSITION = z.string().optional().describe(
+  "Composition name, exactly as list-compositions reports it. Omit to use the composition open in the viewer."
+);
+const COMPOSITION_INDEX = z.number().int().positive().optional().describe(
+  "Project item index of the composition, as list-compositions reports it. Use compName unless you only have the index."
+);
+const LAYER_INDEX = z.number().int().positive().optional().describe("1-based layer index, as get-layer-info reports it.");
+const LAYER_NAME = z.string().optional().describe("Layer name, exactly as get-layer-info reports it.");
+
+// --- Read ---
+
 server.tool(
-  "get-help",
-  "Get help on using the After Effects MCP integration",
+  "get-project-info",
+  "Report the open After Effects project: name, path, item counts and the active composition.",
   {},
-  async () => {
-    return {
-      content: [
-        {
-          type: "text",
-          text: `# After Effects MCP Integration Help
-
-To use this integration with After Effects, follow these steps:
-
- 1. **Install the scripts in After Effects**
-   - Run \`node install-bridge.js\` with administrator privileges
-   - This copies the necessary scripts to your After Effects installation
-
-2. **Open After Effects**
-   - Launch Adobe After Effects 
-   - Open a project that you want to work with
-
-3. **Open the MCP Bridge Auto panel**
-   - In After Effects, go to Window > mcp-bridge-auto.jsx
-   - The panel will automatically check for commands every few seconds
-
-4. **Run scripts through MCP**
-   - Use the \`run-script\` tool to queue a command
-   - The Auto panel will detect and run the command automatically
-   - Results will be saved to a temp file
-
-5. **Get results through MCP**
-   - After a command is executed, use the \`get-results\` tool
-   - This will retrieve the results from After Effects
-
-Available scripts:
-- getProjectInfo: Information about the current project
-- listCompositions: List all compositions in the project
-- getLayerInfo: Information about layers in the active composition
-- createComposition: Create a new composition
-- createTextLayer: Create a new text layer
-- createShapeLayer: Create a new shape layer
-- createSolidLayer: Create a new solid layer
-- setLayerProperties: Set properties for a layer
-- setLayerKeyframe: Set a keyframe for a layer property
-- setLayerExpression: Set an expression for a layer property
-- applyEffect: Apply an effect to a layer
-- applyEffectTemplate: Apply a predefined effect template to a layer
-
-Effect Templates:
-- gaussian-blur: Simple Gaussian blur effect
-- directional-blur: Motion blur in a specific direction
-- color-balance: Adjust hue, lightness, and saturation
-- brightness-contrast: Basic brightness and contrast adjustment
-- curves: Advanced color adjustment using curves
-- glow: Add a glow effect to elements
-- drop-shadow: Add a customizable drop shadow
-- cinematic-look: Combination of effects for a cinematic appearance
-- text-pop: Effects to make text stand out (glow and shadow)
-
-Note: The auto-running panel can be left open in After Effects to continuously listen for commands from external applications.`
-        }
-      ]
-    };
-  }
+  async () => runBridgeTool("getProjectInfo", {})
 );
 
-// Add a tool specifically for creating compositions
+server.tool(
+  "list-compositions",
+  "List every composition in the project with its index, name, dimensions, duration, frame rate and layer count. Start here to learn the compName and compIndex the other tools take.",
+  {},
+  async () => runBridgeTool("listCompositions", {})
+);
+
+server.tool(
+  "get-layer-info",
+  "List the layers of a composition (index, name, type, timing, parent, position, effect count), or describe one layer when layerIndex or layerName is given.",
+  {
+    compName: COMPOSITION,
+    compIndex: COMPOSITION_INDEX,
+    layerIndex: LAYER_INDEX,
+    layerName: LAYER_NAME
+  },
+  async (args) => runBridgeTool("getLayerInfo", args)
+);
+
+server.tool(
+  "get-property-value",
+  "Read one property: its value (at timeInSeconds, default the current time), its expression, and its keyframes. Accepts a plain name ('Position') or a slash path ('Transform/Position', 'Effects/Gaussian Blur/Blurriness').",
+  {
+    compName: COMPOSITION,
+    compIndex: COMPOSITION_INDEX,
+    layerIndex: LAYER_INDEX,
+    layerName: LAYER_NAME,
+    propertyName: z.string().describe("Property name or slash-separated path, e.g. 'Opacity' or 'Transform/Position'."),
+    timeInSeconds: z.number().optional().describe("Time to sample at. Defaults to the composition's current time.")
+  },
+  async (args) => runBridgeTool("getPropertyValue", args)
+);
+
+// --- Compositions ---
+
 server.tool(
   "create-composition",
-  "Create a new composition in After Effects with specified parameters",
+  "Create a new composition and return its resulting settings.",
   {
     name: z.string().describe("Name of the composition"),
-    width: z.number().int().positive().describe("Width of the composition in pixels"),
-    height: z.number().int().positive().describe("Height of the composition in pixels"),
-    pixelAspect: z.number().positive().optional().describe("Pixel aspect ratio (default: 1.0)"),
-    duration: z.number().positive().optional().describe("Duration in seconds (default: 10.0)"),
-    frameRate: z.number().positive().optional().describe("Frame rate in frames per second (default: 30.0)"),
+    width: z.number().int().positive().optional().describe("Width in pixels (default 1920)"),
+    height: z.number().int().positive().optional().describe("Height in pixels (default 1080)"),
+    pixelAspect: z.number().positive().optional().describe("Pixel aspect ratio (default 1.0)"),
+    duration: z.number().positive().optional().describe("Duration in seconds (default 10)"),
+    frameRate: z.number().positive().optional().describe("Frame rate in frames per second (default 30)"),
     backgroundColor: z.object({
       r: z.number().int().min(0).max(255),
       g: z.number().int().min(0).max(255),
       b: z.number().int().min(0).max(255)
-    }).optional().describe("Background color of the composition (RGB values 0-255)")
+    }).optional().describe("Background colour as 0-255 RGB")
   },
-  async (params) => {
-    try {
-      // Write command to file for After Effects to pick up
-      writeCommandFile("createComposition", params);
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Command to create composition "${params.name}" has been queued.\n` +
-                  `Please ensure the "MCP Bridge Auto" panel is open in After Effects.\n` +
-                  `Use the "get-results" tool after a few seconds to check for results.`
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error queuing composition creation: ${String(error)}`
-          }
-        ],
-        isError: true
-      };
-    }
-  }
+  async (args) => runBridgeTool("createComposition", args)
 );
 
-// --- BEGIN NEW TOOLS --- 
-
-// Zod schema for common layer identification
-const LayerIdentifierSchema = {
-  compIndex: z.number().int().positive().describe("1-based index of the target composition in the project panel."),
-  layerIndex: z.number().int().positive().describe("1-based index of the target layer within the composition.")
-};
-
-// Zod schema for keyframe value (more specific types might be needed depending on property)
-// Using z.any() for flexibility, but can be refined (e.g., z.array(z.number()) for position/scale)
-const KeyframeValueSchema = z.unknown().describe("The value for the keyframe (e.g., [x,y] for Position, [w,h] for Scale, angle for Rotation, percentage for Opacity)");
-
-// Tool for setting a layer keyframe
 server.tool(
-  "setLayerKeyframe", // Corresponds to the function name in ExtendScript
-  "Set a keyframe for a specific layer property at a given time.",
+  "set-composition-properties",
+  "Change a composition's duration, frame rate, or dimensions (width and height together).",
   {
-    ...LayerIdentifierSchema, // Reuse common identifiers
-    propertyName: z.string().describe("Name of the property to keyframe (e.g., 'Position', 'Scale', 'Rotation', 'Opacity')."),
-    timeInSeconds: z.number().describe("The time (in seconds) for the keyframe."),
-    value: KeyframeValueSchema
+    compName: COMPOSITION,
+    duration: z.number().positive().optional().describe("New duration in seconds"),
+    frameRate: z.number().positive().optional().describe("New frame rate in frames per second"),
+    width: z.number().int().positive().optional().describe("New width in pixels; requires height"),
+    height: z.number().int().positive().optional().describe("New height in pixels; requires width")
   },
-  async (parameters) => {
-    try {
-      // Queue the command for After Effects
-      writeCommandFile("setLayerKeyframe", parameters);
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Command to set keyframe for "${parameters.propertyName}" on layer ${parameters.layerIndex} in comp ${parameters.compIndex} has been queued.\n` +
-                  `Use the "get-results" tool after a few seconds to check for confirmation.`
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error queuing setLayerKeyframe command: ${String(error)}`
-          }
-        ],
-        isError: true
-      };
-    }
-  }
+  async (args) => runBridgeTool("setCompositionProperties", args)
 );
 
-// Tool for setting a layer expression
+// --- Layers ---
+
 server.tool(
-  "setLayerExpression", // Corresponds to the function name in ExtendScript
-  "Set or remove an expression for a specific layer property.",
+  "create-text-layer",
+  "Add a text layer to a composition.",
   {
-    ...LayerIdentifierSchema, // Reuse common identifiers
-    propertyName: z.string().describe("Name of the property to apply the expression to (e.g., 'Position', 'Scale', 'Rotation', 'Opacity')."),
-    expressionString: z.string().describe("The JavaScript expression string. Provide an empty string (\"\") to remove the expression.")
+    compName: COMPOSITION,
+    text: z.string().optional().describe("Text content (default 'Text Layer')"),
+    position: z.array(z.number()).length(2).optional().describe("[x, y] position in pixels"),
+    fontSize: z.number().positive().optional().describe("Font size in pixels (default 72)"),
+    color: z.array(z.number()).length(3).optional().describe("[r, g, b] fill colour, 0-1"),
+    fontFamily: z.string().optional().describe("Font family (default 'Arial')"),
+    alignment: z.enum(["left", "center", "right"]).optional().describe("Paragraph justification (default 'center')"),
+    startTime: z.number().optional().describe("Layer start time in seconds"),
+    duration: z.number().positive().optional().describe("Layer duration in seconds; 0 keeps the composition duration")
   },
-  async (parameters) => {
-    try {
-      // Queue the command for After Effects
-      writeCommandFile("setLayerExpression", parameters);
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Command to set expression for "${parameters.propertyName}" on layer ${parameters.layerIndex} in comp ${parameters.compIndex} has been queued.\n` +
-                  `Use the "get-results" tool after a few seconds to check for confirmation.`
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error queuing setLayerExpression command: ${String(error)}`
-          }
-        ],
-        isError: true
-      };
-    }
-  }
+  async (args) => runBridgeTool("createTextLayer", args)
 );
 
-// --- END NEW TOOLS --- 
-
-// --- BEGIN NEW TESTING TOOL --- 
-// Add a special tool for directly testing the keyframe functionality
 server.tool(
-  "test-animation",
-  "Test animation functionality in After Effects",
+  "create-shape-layer",
+  "Add a shape layer (rectangle, ellipse, polygon or star) to a composition.",
   {
-    operation: z.enum(["keyframe", "expression"]).describe("The animation operation to test"),
-    compIndex: z.number().int().positive().describe("Composition index (usually 1)"),
-    layerIndex: z.number().int().positive().describe("Layer index (usually 1)")
+    compName: COMPOSITION,
+    shapeType: z.enum(["rectangle", "ellipse", "polygon", "star"]).describe("Shape to draw"),
+    position: z.array(z.number()).length(2).optional().describe("[x, y] position in pixels"),
+    size: z.array(z.number()).length(2).optional().describe("[width, height] in pixels (default [200, 200])"),
+    fillColor: z.array(z.number()).length(3).optional().describe("[r, g, b] fill colour, 0-1"),
+    strokeColor: z.array(z.number()).length(3).optional().describe("[r, g, b] stroke colour, 0-1"),
+    strokeWidth: z.number().min(0).optional().describe("Stroke width in pixels; 0 means no stroke"),
+    points: z.number().int().min(3).optional().describe("Number of points for polygon or star (default 5)"),
+    name: z.string().optional().describe("Layer name (default 'Shape Layer')"),
+    startTime: z.number().optional().describe("Layer start time in seconds"),
+    duration: z.number().positive().optional().describe("Layer duration in seconds")
   },
-  async (params) => {
-    try {
-      // Generate a unique timestamp
-      const timestamp = new Date().getTime();
-      const tempFile = path.join(process.env.TEMP || process.env.TMP || os.tmpdir(), `ae_test_${timestamp}.jsx`);
-      
-      // Create a direct test script that doesn't rely on command files
-      let scriptContent = "";
-      if (params.operation === "keyframe") {
-        scriptContent = `
-          // Direct keyframe test script
-          try {
-            var comp = app.project.items[${params.compIndex}];
-            var layer = comp.layers[${params.layerIndex}];
-            var prop = layer.property("Transform").property("Opacity");
-            var time = 1; // 1 second
-            var value = 25; // 25% opacity
-            
-            // Set a keyframe
-            prop.setValueAtTime(time, value);
-            
-            // Write direct result
-            var resultFile = new File("${path.join(process.env.TEMP || process.env.TMP || os.tmpdir(), 'ae_test_result.txt').replace(/\\/g, '\\\\')}");
-            resultFile.open("w");
-            resultFile.write("SUCCESS: Added keyframe at time " + time + " with value " + value);
-            resultFile.close();
-            
-            // Visual feedback
-            alert("Test successful: Added opacity keyframe at " + time + "s with value " + value + "%");
-          } catch (e) {
-            var errorFile = new File("${path.join(process.env.TEMP || process.env.TMP || os.tmpdir(), 'ae_test_error.txt').replace(/\\/g, '\\\\')}");
-            errorFile.open("w");
-            errorFile.write("ERROR: " + e.toString());
-            errorFile.close();
-            
-            alert("Test failed: " + e.toString());
-          }
-        `;
-      } else if (params.operation === "expression") {
-        scriptContent = `
-          // Direct expression test script
-          try {
-            var comp = app.project.items[${params.compIndex}];
-            var layer = comp.layers[${params.layerIndex}];
-            var prop = layer.property("Transform").property("Position");
-            var expression = "wiggle(3, 30)";
-            
-            // Set the expression
-            prop.expression = expression;
-            
-            // Write direct result
-            var resultFile = new File("${path.join(process.env.TEMP || process.env.TMP || os.tmpdir(), 'ae_test_result.txt').replace(/\\/g, '\\\\')}");
-            resultFile.open("w");
-            resultFile.write("SUCCESS: Added expression: " + expression);
-            resultFile.close();
-            
-            // Visual feedback
-            alert("Test successful: Added position expression: " + expression);
-          } catch (e) {
-            var errorFile = new File("${path.join(process.env.TEMP || process.env.TMP || os.tmpdir(), 'ae_test_error.txt').replace(/\\/g, '\\\\')}");
-            errorFile.open("w");
-            errorFile.write("ERROR: " + e.toString());
-            errorFile.close();
-            
-            alert("Test failed: " + e.toString());
-          }
-        `;
-      }
-      
-      // Write the script to a temp file
-      fs.writeFileSync(tempFile, scriptContent);
-      console.error(`Written test script to: ${tempFile}`);
-      
-      // Tell the user what to do
-      return {
-        content: [
-          {
-            type: "text",
-            text: `I've created a direct test script for the ${params.operation} operation.
-
-Please run this script manually in After Effects:
-1. In After Effects, go to File > Scripts > Run Script File...
-2. Navigate to: ${tempFile}
-3. You should see an alert confirming the result.
-
-This bypasses the MCP Bridge Auto panel and will directly modify the specified layer.`
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error creating test script: ${String(error)}`
-          }
-        ],
-        isError: true
-      };
-    }
-  }
+  async (args) => runBridgeTool("createShapeLayer", args)
 );
-// --- END NEW TESTING TOOL --- 
 
-// --- BEGIN NEW EFFECTS TOOLS ---
+server.tool(
+  "create-solid-layer",
+  "Add a solid layer to a composition, optionally as an adjustment layer.",
+  {
+    compName: COMPOSITION,
+    name: z.string().optional().describe("Layer name (default 'Solid Layer')"),
+    color: z.array(z.number()).length(3).optional().describe("[r, g, b] colour, 0-1"),
+    size: z.array(z.number()).length(2).optional().describe("[width, height] in pixels; defaults to the composition size"),
+    position: z.array(z.number()).length(2).optional().describe("[x, y] position in pixels"),
+    isAdjustment: z.boolean().optional().describe("Create an adjustment layer instead of a solid"),
+    startTime: z.number().optional().describe("Layer start time in seconds"),
+    duration: z.number().positive().optional().describe("Layer duration in seconds")
+  },
+  async (args) => runBridgeTool("createSolidLayer", args)
+);
 
-// Add a tool for applying effects to layers
+server.tool(
+  "create-camera",
+  "Add a camera layer to a composition.",
+  {
+    compName: COMPOSITION,
+    name: z.string().optional().describe("Camera name (default 'Camera')"),
+    zoom: z.number().positive().optional().describe("Zoom in pixels (default 1777.78, about 50mm)"),
+    position: z.array(z.number()).length(3).optional().describe("[x, y, z] camera position"),
+    pointOfInterest: z.array(z.number()).length(3).optional().describe("[x, y, z] point of interest; ignored for a one-node camera"),
+    oneNode: z.boolean().optional().describe("Create a one-node camera with no point of interest")
+  },
+  async (args) => runBridgeTool("createCamera", args)
+);
+
+server.tool(
+  "duplicate-layer",
+  "Duplicate a layer, optionally renaming the copy.",
+  {
+    compName: COMPOSITION,
+    layerIndex: LAYER_INDEX,
+    layerName: LAYER_NAME,
+    newName: z.string().optional().describe("Name for the duplicated layer")
+  },
+  async (args) => runBridgeTool("duplicateLayer", args)
+);
+
+server.tool(
+  "delete-layer",
+  "Delete a layer from a composition.",
+  {
+    compName: COMPOSITION,
+    layerIndex: LAYER_INDEX,
+    layerName: LAYER_NAME
+  },
+  async (args) => runBridgeTool("deleteLayer", args)
+);
+
+server.tool(
+  "set-layer-properties",
+  "Set transform, text, timing or blending properties on one layer.",
+  {
+    compName: COMPOSITION,
+    layerIndex: LAYER_INDEX,
+    layerName: LAYER_NAME,
+    position: z.array(z.number()).min(2).max(3).optional().describe("[x, y] or [x, y, z] position. Clears position keyframes."),
+    scale: z.array(z.number()).length(2).optional().describe("[width, height] scale where 100 is 100%"),
+    rotation: z.number().optional().describe("Rotation in degrees (Z rotation on a 3D layer)"),
+    opacity: z.number().min(0).max(100).optional().describe("Opacity as a percentage"),
+    threeDLayer: z.boolean().optional().describe("Make the layer 3D or 2D"),
+    trackMatteType: z.enum(["none", "alpha", "alphaInverted", "luma", "lumaInverted"]).optional().describe("Track matte mode"),
+    blendMode: z.enum([
+      "normal", "add", "multiply", "screen", "overlay", "softLight", "hardLight",
+      "colorDodge", "colorBurn", "darken", "lighten", "difference", "exclusion",
+      "hue", "saturation", "color", "luminosity"
+    ]).optional().describe("Blending mode"),
+    enabled: z.boolean().optional().describe("Show or hide the layer"),
+    startTime: z.number().optional().describe("Layer start time in seconds"),
+    duration: z.number().positive().optional().describe("Layer duration in seconds"),
+    text: z.string().optional().describe("Source text (text layers only)"),
+    fontFamily: z.string().optional().describe("Font family (text layers only)"),
+    fontSize: z.number().positive().optional().describe("Font size in pixels (text layers only)"),
+    fillColor: z.array(z.number()).length(3).optional().describe("[r, g, b] text fill colour, 0-1")
+  },
+  async (args) => runBridgeTool("setLayerProperties", args)
+);
+
+server.tool(
+  "batch-set-layer-properties",
+  "Apply property changes to several layers in one call. Each operation takes the same keys as set-layer-properties plus layerIndex or layerName.",
+  {
+    compName: COMPOSITION,
+    operations: z.array(z.record(z.string(), z.unknown())).min(1).describe(
+      "Array of { layerIndex | layerName, position?, scale?, rotation?, opacity?, threeDLayer?, trackMatteType?, blendMode?, startTime?, outPoint? }"
+    )
+  },
+  async (args) => runBridgeTool("batchSetLayerProperties", args)
+);
+
+server.tool(
+  "set-layer-mask",
+  "Create a mask on a layer, or modify an existing mask when maskIndex is given.",
+  {
+    compName: COMPOSITION,
+    layerIndex: LAYER_INDEX,
+    layerName: LAYER_NAME,
+    maskIndex: z.number().int().positive().optional().describe("Existing mask to modify; omit to add a mask"),
+    maskPath: z.array(z.array(z.number()).length(2)).optional().describe("Mask outline as [[x, y], ...] points"),
+    maskRect: z.object({
+      top: z.number(),
+      left: z.number(),
+      width: z.number(),
+      height: z.number()
+    }).optional().describe("Rectangular mask instead of maskPath"),
+    maskMode: z.enum(["add", "subtract", "intersect", "none", "lighten", "darken", "difference"]).optional().describe("Mask mode (default 'add')"),
+    maskFeather: z.array(z.number()).length(2).optional().describe("[x, y] feather in pixels"),
+    maskOpacity: z.number().min(0).max(100).optional().describe("Mask opacity as a percentage"),
+    maskExpansion: z.number().optional().describe("Mask expansion in pixels"),
+    maskName: z.string().optional().describe("Rename the mask")
+  },
+  async (args) => runBridgeTool("setLayerMask", args)
+);
+
+// --- Animation ---
+
+server.tool(
+  "set-layer-keyframe",
+  "Set a keyframe on a layer property at a given time, creating or replacing the key at that time.",
+  {
+    compIndex: z.number().int().positive().describe("Project item index of the composition, from list-compositions."),
+    layerIndex: z.number().int().positive().describe("1-based layer index, from get-layer-info."),
+    propertyName: z.string().describe("Property to keyframe, e.g. 'Position', 'Scale', 'Rotation', 'Opacity'."),
+    timeInSeconds: z.number().describe("Time of the keyframe in seconds."),
+    value: z.unknown().describe("Keyframe value: [x, y] for Position, [w, h] for Scale, a number for Rotation or Opacity.")
+  },
+  async (args) => runBridgeTool("setLayerKeyframe", args)
+);
+
+server.tool(
+  "delete-keyframe",
+  "Remove the keyframe nearest a given time, or every keyframe on the property with all:true. Reports the time actually removed.",
+  {
+    compName: COMPOSITION,
+    compIndex: COMPOSITION_INDEX,
+    layerIndex: LAYER_INDEX,
+    layerName: LAYER_NAME,
+    propertyName: z.string().describe("Property holding the keyframes, e.g. 'Position' or 'Transform/Opacity'."),
+    timeInSeconds: z.number().optional().describe("Target time; the nearest keyframe is removed. Omit when using all:true."),
+    all: z.boolean().optional().describe("Remove every keyframe on the property")
+  },
+  async (args) => runBridgeTool("deleteKeyframe", args)
+);
+
+server.tool(
+  "set-layer-expression",
+  "Set or remove an expression on a layer property. Pass an empty string to remove the expression.",
+  {
+    compIndex: z.number().int().positive().describe("Project item index of the composition, from list-compositions."),
+    layerIndex: z.number().int().positive().describe("1-based layer index, from get-layer-info."),
+    propertyName: z.string().describe("Property to animate, e.g. 'Position' or 'Opacity'."),
+    expressionString: z.string().describe("ExtendScript expression, or \"\" to remove it.")
+  },
+  async (args) => runBridgeTool("setLayerExpression", args)
+);
+
+// --- Effects ---
+
 server.tool(
   "apply-effect",
-  "Apply an effect to a layer in After Effects",
+  "Apply one effect to a layer. Effect match names are more reliable than display names (e.g. 'ADBE Gaussian Blur 2', 'ADBE Glow', 'ADBE Drop Shadow', 'ADBE HUE SATURATION', 'ADBE Fractal Noise').",
   {
-    compIndex: z.number().int().positive().describe("1-based index of the target composition in the project panel."),
-    layerIndex: z.number().int().positive().describe("1-based index of the target layer within the composition."),
-    effectName: z.string().optional().describe("Display name of the effect to apply (e.g., 'Gaussian Blur')."),
-    effectMatchName: z.string().optional().describe("After Effects internal name for the effect (more reliable, e.g., 'ADBE Gaussian Blur 2')."),
-    effectCategory: z.string().optional().describe("Optional category for filtering effects."),
-    presetPath: z.string().optional().describe("Optional path to an effect preset file (.ffx)."),
-    effectSettings: z.record(z.string(), z.unknown()).optional().describe("Optional parameters for the effect (e.g., { 'Blurriness': 25 }).")
+    compIndex: z.number().int().positive().describe("Project item index of the composition, from list-compositions."),
+    layerIndex: z.number().int().positive().describe("1-based layer index, from get-layer-info."),
+    effectName: z.string().optional().describe("Display name, e.g. 'Gaussian Blur'."),
+    effectMatchName: z.string().optional().describe("Internal match name, e.g. 'ADBE Gaussian Blur 2'. Takes precedence over effectName."),
+    effectCategory: z.string().optional().describe("Optional category used to narrow the lookup."),
+    presetPath: z.string().optional().describe("Absolute path to an .ffx preset to apply instead."),
+    effectSettings: z.record(z.string(), z.unknown()).optional().describe("Effect parameters keyed by property name, e.g. { 'Blurriness': 25 }.")
   },
-  async (parameters) => {
-    try {
-      // Queue the command for After Effects
-      writeCommandFile("applyEffect", parameters);
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Command to apply effect to layer ${parameters.layerIndex} in composition ${parameters.compIndex} has been queued.\n` +
-                  `Use the "get-results" tool after a few seconds to check for confirmation.`
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error queuing apply-effect command: ${String(error)}`
-          }
-        ],
-        isError: true
-      };
-    }
-  }
+  async (args) => runBridgeTool("applyEffect", args)
 );
 
-// Add a tool for applying effect templates
 server.tool(
   "apply-effect-template",
-  "Apply a predefined effect template to a layer in After Effects",
+  "Apply a named effect template (a preset group of effects and settings) to a layer.",
   {
-    compIndex: z.number().int().positive().describe("1-based index of the target composition in the project panel."),
-    layerIndex: z.number().int().positive().describe("1-based index of the target layer within the composition."),
+    compIndex: z.number().int().positive().describe("Project item index of the composition, from list-compositions."),
+    layerIndex: z.number().int().positive().describe("1-based layer index, from get-layer-info."),
     templateName: z.enum([
-      "gaussian-blur", 
-      "directional-blur", 
-      "color-balance", 
+      "gaussian-blur",
+      "directional-blur",
+      "color-balance",
       "brightness-contrast",
       "curves",
       "glow",
       "drop-shadow",
       "cinematic-look",
       "text-pop"
-    ]).describe("Name of the effect template to apply."),
-    customSettings: z.record(z.string(), z.unknown()).optional().describe("Optional custom settings to override defaults.")
+    ]).describe("Template to apply."),
+    customSettings: z.record(z.string(), z.unknown()).optional().describe("Settings that override the template defaults.")
   },
-  async (parameters) => {
-    try {
-      // Queue the command for After Effects
-      writeCommandFile("applyEffectTemplate", parameters);
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Command to apply effect template '${parameters.templateName}' to layer ${parameters.layerIndex} in composition ${parameters.compIndex} has been queued.\n` +
-                  `Use the "get-results" tool after a few seconds to check for confirmation.`
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error queuing apply-effect-template command: ${String(error)}`
-          }
-        ],
-        isError: true
-      };
-    }
-  }
+  async (args) => runBridgeTool("applyEffectTemplate", args)
 );
 
-// --- END NEW EFFECTS TOOLS ---
+// --- Output ---
 
-// Add direct MCP function for applying effects
 server.tool(
-  "mcp_aftereffects_applyEffect",
-  "Apply an effect to a layer in After Effects",
+  "render-composition",
+  "Render a composition to a file through the render queue, or write a single PNG frame when frameAtTime is given. Returns the output path.",
   {
-    compIndex: z.number().int().positive().describe("1-based index of the target composition in the project panel."),
-    layerIndex: z.number().int().positive().describe("1-based index of the target layer within the composition."),
-    effectName: z.string().optional().describe("Display name of the effect to apply (e.g., 'Gaussian Blur')."),
-    effectMatchName: z.string().optional().describe("After Effects internal name for the effect (more reliable, e.g., 'ADBE Gaussian Blur 2')."),
-    effectSettings: z.record(z.string(), z.unknown()).optional().describe("Optional parameters for the effect (e.g., { 'Blurriness': 25 }).")
+    compName: COMPOSITION,
+    compIndex: COMPOSITION_INDEX,
+    outputPath: z.string().optional().describe("Absolute output file path the render queue writes to. Required for a still frame."),
+    outputModuleTemplate: z.string().optional().describe("Installed output module template name, e.g. 'Lossless' or 'H.264'. Defaults to the template already on the item."),
+    frameAtTime: z.number().optional().describe("Render just this time as a PNG instead of the whole composition.")
   },
-  async (parameters) => {
-    try {
-      // Queue the command for After Effects
-      writeCommandFile("applyEffect", parameters);
-      
-      // Wait a bit for After Effects to process the command
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Get the results
-      const result = readResultsFromTempFile();
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: result
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error applying effect: ${String(error)}`
-          }
-        ],
-        isError: true
-      };
-    }
-  }
+  async (args) => runBridgeTool("renderComposition", args)
 );
 
-// Add direct MCP function for applying effect templates
+// Escape hatch, deliberately separate: this runs code the caller wrote, so the
+// bridge can grant or deny it on its own instead of hiding it in a whitelist.
 server.tool(
-  "mcp_aftereffects_applyEffectTemplate",
-  "Apply a predefined effect template to a layer in After Effects",
+  "run-script-file",
+  "Escape hatch: run a .jsx/.jsxbin file from disk with full ExtendScript access and return its result. Prefer the typed tools above; use this only for something they cannot express.",
   {
-    compIndex: z.number().int().positive().describe("1-based index of the target composition in the project panel."),
-    layerIndex: z.number().int().positive().describe("1-based index of the target layer within the composition."),
-    templateName: z.enum([
-      "gaussian-blur", 
-      "directional-blur", 
-      "color-balance", 
-      "brightness-contrast",
-      "curves",
-      "glow",
-      "drop-shadow",
-      "cinematic-look",
-      "text-pop"
-    ]).describe("Name of the effect template to apply."),
-    customSettings: z.record(z.string(), z.unknown()).optional().describe("Optional custom settings to override defaults.")
+    path: z.string().describe("Absolute path to a .jsx or .jsxbin file on the machine running After Effects")
   },
-  async (parameters) => {
-    try {
-      // Queue the command for After Effects
-      writeCommandFile("applyEffectTemplate", parameters);
-      
-      // Wait a bit for After Effects to process the command
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Get the results
-      const result = readResultsFromTempFile();
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: result
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error applying effect template: ${String(error)}`
-          }
-        ],
-        isError: true
-      };
+  async ({ path: scriptPath }) => {
+    const filePath = path.resolve(scriptPath);
+    if (!/\.jsx(bin)?$/i.test(filePath)) {
+      return textResult(`Error: "${filePath}" is not a .jsx or .jsxbin file.`, true);
     }
-  }
-);
-
-// Update help information to include the new effects tools
-server.tool(
-  "mcp_aftereffects_get_effects_help",
-  "Get help on using After Effects effects",
-  {},
-  async () => {
-    return {
-      content: [
-        {
-          type: "text",
-          text: `# After Effects Effects Help
-
-## Common Effect Match Names
-These are internal names used by After Effects that can be used with the \`effectMatchName\` parameter:
-
-### Blur & Sharpen
-- Gaussian Blur: "ADBE Gaussian Blur 2"
-- Camera Lens Blur: "ADBE Camera Lens Blur"
-- Directional Blur: "ADBE Directional Blur"
-- Radial Blur: "ADBE Radial Blur"
-- Smart Blur: "ADBE Smart Blur"
-- Unsharp Mask: "ADBE Unsharp Mask"
-
-### Color Correction
-- Brightness & Contrast: "ADBE Brightness & Contrast 2"
-- Color Balance: "ADBE Color Balance (HLS)"
-- Color Balance (RGB): "ADBE Pro Levels2"
-- Curves: "ADBE CurvesCustom"
-- Exposure: "ADBE Exposure2"
-- Hue/Saturation: "ADBE HUE SATURATION"
-- Levels: "ADBE Pro Levels2"
-- Vibrance: "ADBE Vibrance"
-
-### Stylistic
-- Glow: "ADBE Glow"
-- Drop Shadow: "ADBE Drop Shadow"
-- Bevel Alpha: "ADBE Bevel Alpha"
-- Noise: "ADBE Noise"
-- Fractal Noise: "ADBE Fractal Noise"
-- CC Particle World: "CC Particle World"
-- CC Light Sweep: "CC Light Sweep"
-
-## Effect Templates
-The following predefined effect templates are available:
-
-- \`gaussian-blur\`: Simple Gaussian blur effect
-- \`directional-blur\`: Motion blur in a specific direction
-- \`color-balance\`: Adjust hue, lightness, and saturation
-- \`brightness-contrast\`: Basic brightness and contrast adjustment
-- \`curves\`: Advanced color adjustment using curves
-- \`glow\`: Add a glow effect to elements
-- \`drop-shadow\`: Add a customizable drop shadow
-- \`cinematic-look\`: Combination of effects for a cinematic appearance
-- \`text-pop\`: Effects to make text stand out (glow and shadow)
-
-## Example Usage
-To apply a Gaussian blur effect:
-
-\`\`\`json
-{
-  "compIndex": 1,
-  "layerIndex": 1,
-  "effectMatchName": "ADBE Gaussian Blur 2",
-  "effectSettings": {
-    "Blurriness": 25
-  }
-}
-\`\`\`
-
-To apply the "cinematic-look" template:
-
-\`\`\`json
-{
-  "compIndex": 1,
-  "layerIndex": 1,
-  "templateName": "cinematic-look"
-}
-\`\`\`
-`
-        }
-      ]
-    };
-  }
-);
-
-// Add a direct tool for our bridge test effects
-server.tool(
-  "run-bridge-test",
-  "Run the bridge test effects script to verify communication and apply test effects",
-  {},
-  async () => {
-    try {
-      // Clear any stale result data
-      clearResultsFile();
-      
-      // Write command to file for After Effects to pick up
-      writeCommandFile("bridgeTestEffects", {});
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Bridge test effects command has been queued.\n` +
-                  `Please ensure the "MCP Bridge Auto" panel is open in After Effects.\n` +
-                  `Use the "get-results" tool after a few seconds to check for the test results.`
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error queuing bridge test command: ${String(error)}`
-          }
-        ],
-        isError: true
-      };
+    if (!fs.existsSync(filePath)) {
+      return textResult(`Error: script not found at ${filePath}`, true);
     }
+    return runBridgeTool("runScriptFile", { path: filePath });
   }
 );
 
@@ -1047,9 +620,8 @@ server.tool(
 async function main() {
   console.error("After Effects MCP Server starting...");
   console.error(`Scripts directory: ${SCRIPTS_DIR}`);
-  console.error(`Temp directory: ${TEMP_DIR}`);
   console.error(`Bridge directory: ${getAETempDir()}`);
-  
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("After Effects MCP Server running...");

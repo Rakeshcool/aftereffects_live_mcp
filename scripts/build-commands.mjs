@@ -27,7 +27,7 @@ const TARGET = path.join(ROOT, "src", "scripts", "ae-commands.jsx");
 const COMMANDS = {
   "get-project-info": "getProjectInfo()",
   "list-compositions": "listCompositions()",
-  "get-layer-info": "getLayerInfo()",
+  "get-layer-info": "getLayerInfo(args)",
   "create-composition": "createComposition(args)",
   "create-text-layer": "createTextLayer(args)",
   "create-shape-layer": "createShapeLayer(args)",
@@ -45,6 +45,9 @@ const COMMANDS = {
   "apply-effect-template": "applyEffectTemplate(args)",
   "run-script-file": "runScriptFile(args)",
   "test-bridge-effects": "bridgeTestEffects(args)",
+  "get-property-value": "getPropertyValue(args)",
+  "delete-keyframe": "deleteKeyframe(args)",
+  "render-composition": "renderComposition(args)",
 };
 
 /**
