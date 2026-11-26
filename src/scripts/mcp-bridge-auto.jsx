@@ -1682,6 +1682,184 @@ function deleteKeyframe(args) {
     }
 }
 
+// Writes one property: the counterpart to get-property-value, and the only way to
+// reach what the typed setters cannot (effect parameters, shape contents, mask
+// values). Takes the same slash path get-property-value accepts; passing a time
+// turns the write into a keyframe at that time.
+function setPropertyValue(args) {
+    try {
+        if (!args || !args.propertyName) { throw new Error("propertyName is required."); }
+        var comp = mcpResolveComp(args);
+        var layer = mcpResolveLayer(comp, args);
+        var property = mcpFindProperty(layer, args.propertyName);
+        var childCount = 0;
+        try { childCount = property.numProperties || 0; } catch (e) { childCount = 0; }
+        if (childCount > 0) {
+            throw new Error("'" + args.propertyName + "' is a group with " + childCount +
+                " children, not a value. Address a child, e.g. 'Transform/Position'.");
+        }
+        if (args.value === undefined) { throw new Error("value is required."); }
+        var wroteKeyframe = false;
+        if (args.timeInSeconds !== undefined && args.timeInSeconds !== null) {
+            property.setValueAtTime(args.timeInSeconds, args.value);
+            wroteKeyframe = true;
+        } else {
+            property.setValue(args.value);
+        }
+        if (args.expression !== undefined) { property.expression = String(args.expression); }
+        var result = {
+            status: "success",
+            composition: comp.name,
+            layer: layer.name,
+            layerIndex: layer.index,
+            property: property.name,
+            matchName: property.matchName,
+            wroteKeyframe: wroteKeyframe,
+            numKeys: property.numKeys || 0
+        };
+        try {
+            result.value = wroteKeyframe ? property.valueAtTime(args.timeInSeconds, false) : property.value;
+        } catch (readError) { result.value = null; }
+        return JSON.stringify(result, null, 2);
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: mcpErrorMessage(error) }, null, 2);
+    }
+}
+
+// Walks a layer's property tree with match names, so a caller can find the exact
+// property to read or write without probing. Capped in depth and node count: a
+// shape layer with repeaters can hold thousands of properties.
+function getLayerPropertyTree(args) {
+    try {
+        var comp = mcpResolveComp(args);
+        var layer = mcpResolveLayer(comp, args);
+        var maxDepth = (args && args.maxDepth) ? args.maxDepth : 4;
+        var limit = (args && args.maxNodes) ? args.maxNodes : 400;
+        var time = (args && args.timeInSeconds !== undefined && args.timeInSeconds !== null) ? args.timeInSeconds : comp.time;
+        var count = 0;
+        var truncated = false;
+
+        function childCountOf(node) {
+            var n = 0;
+            try { n = node.numProperties || 0; } catch (e) { n = 0; }
+            return n;
+        }
+        function childAt(node, i) {
+            try { return node.property(i); } catch (e) { return null; }
+        }
+        function leafValue(node) {
+            try {
+                if (node.propertyValueType === PropertyValueType.NO_VALUE) { return null; }
+                if (node.numKeys > 0) { return node.valueAtTime(time, false); }
+                return node.value;
+            } catch (e) { return null; }
+        }
+        function visit(node, depth, path) {
+            if (count >= limit) { truncated = true; return null; }
+            count++;
+            var entry = { path: path, name: String(node.name), matchName: node.matchName };
+            var kids = childCountOf(node);
+            if (kids > 0) {
+                entry.childCount = kids;
+                entry.children = [];
+                if (depth < maxDepth) {
+                    for (var i = 1; i <= kids; i++) {
+                        var child = childAt(node, i);
+                        if (!child) { continue; }
+                        var visited = visit(child, depth + 1, path + "/" + String(child.name));
+                        if (visited) { entry.children.push(visited); }
+                    }
+                } else {
+                    entry.truncatedAtDepth = true;
+                }
+            } else {
+                entry.value = leafValue(node);
+                try { entry.numKeys = node.numKeys || 0; } catch (keyError) { }
+                try {
+                    if (node.canSetExpression && node.expressionEnabled) { entry.expression = node.expression; }
+                } catch (expressionError) { }
+            }
+            return entry;
+        }
+
+        var tree = visit(layer, 0, layer.name);
+        return JSON.stringify({
+            status: "success",
+            composition: comp.name,
+            layer: layer.name,
+            layerIndex: layer.index,
+            timeInSeconds: time,
+            maxDepth: maxDepth,
+            nodeCount: count,
+            truncated: truncated,
+            tree: tree
+        }, null, 2);
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: mcpErrorMessage(error) }, null, 2);
+    }
+}
+
+// Runs ExtendScript given as a string, so a one-off edit needs no file on disk.
+// The source is evaluated as-is; wrap it in (function () { ... })() to return a value.
+function runScriptInline(args) {
+    var source = args && args.source;
+    if (!source) {
+        return JSON.stringify({ status: "error", message: "run-script needs a 'source' argument holding ExtendScript." });
+    }
+    try {
+        logToPanel("runScript: " + String(source).length + " chars");
+        var result = eval(String(source));
+        if (result !== null && typeof result === "object") {
+            try { return JSON.stringify(result); } catch (jsonError) { }
+        }
+        return JSON.stringify({ status: "success", result: result === undefined ? null : String(result) });
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: mcpErrorMessage(error) });
+    }
+}
+
+// Drops cached frames so a scripting session sees what the comp actually evaluates
+// now instead of a stale viewer image.
+function purgeCache(args) {
+    try {
+        var kind = (args && args.kind) ? String(args.kind).toLowerCase() : "all";
+        var target = PurgeTarget.ALL_CACHES;
+        if (kind === "all") { target = PurgeTarget.ALL_CACHES; }
+        else if (kind === "image" || kind === "images") { target = PurgeTarget.IMAGE_CACHES; }
+        else if (kind === "undo") { target = PurgeTarget.UNDO_CACHES; }
+        else if (kind === "snapshot" || kind === "snapshots") { target = PurgeTarget.SNAPSHOT_CACHES; }
+        else { throw new Error("kind must be all, image, undo or snapshot."); }
+        app.purge(target);
+        return JSON.stringify({
+            status: "success",
+            purged: kind,
+            project: app.project.file ? app.project.file.fsName : null
+        }, null, 2);
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: mcpErrorMessage(error) }, null, 2);
+    }
+}
+
+// Saves the project to its current file, or to path when it was never saved.
+// Deliberately explicit: nothing in this surface saves on its own.
+function saveProject(args) {
+    try {
+        var hadFile = app.project.file ? true : false;
+        var target = (args && args.path) ? new File(args.path) : app.project.file;
+        if (!target) {
+            throw new Error("The project has never been saved: pass path to write it somewhere.");
+        }
+        app.project.save(target);
+        return JSON.stringify({
+            status: "success",
+            savedTo: target.fsName,
+            created: !hadFile
+        }, null, 2);
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: mcpErrorMessage(error) }, null, 2);
+    }
+}
+
 // Renders a composition through the render queue, or writes one PNG frame when
 // frameAtTime is given. The queue item is removed afterwards so repeated calls
 // do not pile items into the project; the output file is what remains.
@@ -1693,12 +1871,37 @@ function renderComposition(args) {
             if (!/\.png$/i.test(args.outputPath)) { throw new Error("A still frame is written as PNG: outputPath must end in .png."); }
             var frameFile = new File(args.outputPath);
             comp.saveFrameToPng(args.frameAtTime, frameFile);
+            // saveFrameToPng returns before the PNG is on disk, so a caller that read
+            // the path immediately could catch nothing at all. Wait for the file, then
+            // report what actually landed.
+            // The PNG is written in chunks, so "the file exists" is not "the file is
+            // complete": wait until the size stops changing (three equal samples).
+            var waited = 0;
+            var bytes = 0;
+            var lastBytes = -1;
+            var stableReads = 0;
+            while (waited < 8000) {
+                var probe = new File(args.outputPath);
+                try { bytes = probe.exists ? probe.length : 0; } catch (sizeError) { bytes = 0; }
+                if (bytes > 0 && bytes === lastBytes) {
+                    stableReads++;
+                    if (stableReads >= 3) { break; }
+                } else {
+                    stableReads = 0;
+                }
+                lastBytes = bytes;
+                $.sleep(50);
+                waited += 50;
+            }
             return JSON.stringify({
                 status: "success",
                 mode: "frame",
                 composition: comp.name,
                 timeInSeconds: args.frameAtTime,
-                outputPath: frameFile.fsName
+                outputPath: frameFile.fsName,
+                outputBytes: bytes,
+                outputExists: bytes > 0,
+                waitedMs: waited
             }, null, 2);
         }
 
@@ -1913,6 +2116,21 @@ function executeCommand(command, args) {
                 break;
             case "renderComposition":
                 result = renderComposition(args);
+                break;
+            case "setPropertyValue":
+                result = setPropertyValue(args);
+                break;
+            case "getLayerPropertyTree":
+                result = getLayerPropertyTree(args);
+                break;
+            case "runScript":
+                result = runScriptInline(args);
+                break;
+            case "purgeCache":
+                result = purgeCache(args);
+                break;
+            case "saveProject":
+                result = saveProject(args);
                 break;
             case "runScriptFile":
                 logToPanel("Calling runScriptFile function...");

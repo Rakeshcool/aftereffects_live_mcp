@@ -282,7 +282,57 @@
       }),
     },
 
-    // Escape hatch, kept separate so the bridge can deny it on its own.
+    // --- Properties, cache and project ---
+    {
+      name: "set-property-value",
+      description:
+        "Write one property by slash path ('Transform/Position', 'Effects/Glow/Glow Radius', a shape group's 'Contents/…'), optionally as a keyframe at timeInSeconds. Covers what the typed setters cannot reach.",
+      inputSchema: object(
+        {
+          compName: STRING,
+          compIndex: NUMBER,
+          layerIndex: NUMBER,
+          layerName: STRING,
+          propertyName: STRING,
+          value: {}, 
+          timeInSeconds: NUMBER,
+          expression: STRING,
+        },
+        ["propertyName", "value"],
+      ),
+    },
+    {
+      name: "get-layer-property-tree",
+      description:
+        "Walk a layer's property tree with match names, current values and expressions, so an exact property path can be found without probing.",
+      inputSchema: object({
+        compName: STRING,
+        compIndex: NUMBER,
+        layerIndex: NUMBER,
+        layerName: STRING,
+        maxDepth: NUMBER,
+        maxNodes: NUMBER,
+        timeInSeconds: NUMBER,
+      }),
+    },
+    {
+      name: "purge-cache",
+      description: "Purge After Effects caches (all, image, undo or snapshot) so a stale viewer frame is re-evaluated.",
+      inputSchema: object({ kind: STRING }),
+    },
+    {
+      name: "save-project",
+      description: "Save the project to its current file, or to a path when it has never been saved. Nothing saves on its own.",
+      inputSchema: object({ path: STRING }),
+    },
+
+    // Escape hatches, kept separate so the bridge can deny them on its own.
+    {
+      name: "run-script",
+      description:
+        "Run ExtendScript given as a string inside After Effects; wrap it in (function () { ... })() to return a value. Needs no file on disk.",
+      inputSchema: object({ source: STRING }, ["source"]),
+    },
     {
       name: "run-script-file",
       description: "Run an ExtendScript (.jsx or .jsxbin) file from disk inside After Effects and return its result.",

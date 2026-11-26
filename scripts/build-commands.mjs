@@ -47,6 +47,11 @@ const COMMANDS = {
   "get-property-value": "getPropertyValue(args)",
   "delete-keyframe": "deleteKeyframe(args)",
   "render-composition": "renderComposition(args)",
+  "set-property-value": "setPropertyValue(args)",
+  "get-layer-property-tree": "getLayerPropertyTree(args)",
+  "purge-cache": "purgeCache(args)",
+  "save-project": "saveProject(args)",
+  "run-script": "runScriptInline(args)",
 };
 
 /**

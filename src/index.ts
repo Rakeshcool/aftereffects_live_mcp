@@ -638,6 +638,57 @@ server.tool(
   async (args) => runBridgeTool("applyEffectTemplate", args)
 );
 
+// --- Properties, cache and project ---
+
+server.tool(
+  "set-property-value",
+  "Write one property, addressed by plain name or slash path ('Transform/Position', 'Effects/Glow/Glow Radius', 'Contents/Rectangle 1/Rectangle Path/Size'). This is the way to reach what the typed setters cannot: effect parameters, shape contents, mask values. Passing timeInSeconds writes a keyframe at that time instead of a constant.",
+  {
+    compName: COMPOSITION,
+    compIndex: COMPOSITION_INDEX,
+    layerIndex: LAYER_INDEX,
+    layerName: LAYER_NAME,
+    propertyName: z.string().describe("Property name or slash-separated path, as get-property-value accepts."),
+    value: z.union([z.number(), z.array(z.number()), z.string(), z.boolean()]).describe("New value: a number, [x, y], [r, g, b, a], a string or a boolean, matching the property's dimensions."),
+    timeInSeconds: z.number().optional().describe("Write a keyframe at this time instead of a constant value."),
+    expression: z.string().optional().describe("Also set this expression on the property ('' removes it).")
+  },
+  async (args) => runBridgeTool("setPropertyValue", args)
+);
+
+server.tool(
+  "get-layer-property-tree",
+  "Walk one layer's property tree: path, display name, match name, current value, keyframe count and any expression, children nested. Use it to find the exact path set-property-value needs instead of probing.",
+  {
+    compName: COMPOSITION,
+    compIndex: COMPOSITION_INDEX,
+    layerIndex: LAYER_INDEX,
+    layerName: LAYER_NAME,
+    maxDepth: z.number().int().min(1).max(12).optional().describe("How many levels below the layer to walk (default 4)"),
+    maxNodes: z.number().int().min(1).max(5000).optional().describe("Hard cap on nodes returned (default 400); the response reports when it truncated"),
+    timeInSeconds: z.number().optional().describe("Time to sample values at. Defaults to the composition's current time.")
+  },
+  async (args) => runBridgeTool("getLayerPropertyTree", args)
+);
+
+server.tool(
+  "purge-cache",
+  "Purge After Effects caches so a viewer that still shows a stale frame is re-evaluated after scripting.",
+  {
+    kind: z.enum(["all", "image", "undo", "snapshot"]).optional().describe("Which cache to drop (default 'all')")
+  },
+  async (args) => runBridgeTool("purgeCache", args)
+);
+
+server.tool(
+  "save-project",
+  "Save the project to its current file, or to path when it has never been saved. Nothing in this surface saves on its own, so this is the only write to disk.",
+  {
+    path: z.string().optional().describe("Absolute .aep path; required when the project has never been saved")
+  },
+  async (args) => runBridgeTool("saveProject", args)
+);
+
 // --- Output ---
 
 server.tool(
@@ -653,8 +704,17 @@ server.tool(
   async (args) => runBridgeTool("renderComposition", args, RENDER_RESULT_TIMEOUT_MS)
 );
 
-// Escape hatch, deliberately separate: this runs code the caller wrote, so the
-// bridge can grant or deny it on its own instead of hiding it in a whitelist.
+// Escape hatches, deliberately separate: these run code the caller wrote, so the
+// bridge can grant or deny them on its own instead of hiding them in a whitelist.
+server.tool(
+  "run-script",
+  "Escape hatch: run ExtendScript provided as a string and return its result, with no file on disk. The source is evaluated as-is; wrap it in (function () { ... })() to return a value.",
+  {
+    source: z.string().describe("ExtendScript source, e.g. '(function () { return app.version; })();'")
+  },
+  async ({ source }) => runBridgeTool("runScript", { source })
+);
+
 server.tool(
   "run-script-file",
   "Escape hatch: run a .jsx/.jsxbin file from disk with full ExtendScript access and return its result. Prefer the typed tools above; use this only for something they cannot express.",
