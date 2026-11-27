@@ -91,14 +91,30 @@ try {
       execSync(`sudo cp "${sourceScript}" "${destinationScript}"`, { stdio: 'inherit' });
     }
   } else {
-    // Try to use PowerShell with elevated privileges on Windows
-    const command = `
-      Start-Process PowerShell -Verb RunAs -ArgumentList "-Command Copy-Item -Path '${sourceScript.replace(/\\/g, '\\\\')}' -Destination '${destinationScript.replace(/\\/g, '\\\\')}' -Force"
-    `;
-    execSync(`powershell -Command "${command}"`, { stdio: 'inherit' });
+    // The copy needs administrator rights, so it runs in an elevated PowerShell. Start-Process
+    // returns as soon as the elevated window exists, so -Wait is required: without it this script
+    // printed "installed successfully" while the copy had not happened yet, and a dismissed UAC
+    // prompt or a failing Copy-Item left the panel missing with no error.
+    const elevated = `Copy-Item -LiteralPath '${sourceScript}' -Destination '${destinationScript}' -Force`;
+    const argumentList = `'-NoProfile','-Command','${elevated.replace(/'/g, "''")}'`;
+    execSync(
+      `powershell -NoProfile -Command "Start-Process -FilePath PowerShell -Verb RunAs -Wait -ArgumentList ${argumentList}"`,
+      { stdio: 'inherit' },
+    );
   }
 
-  console.log('Bridge script installed successfully!');
+  // Report success only for a file that actually landed: the destination is what AE will load.
+  const sourceSize = fs.statSync(sourceScript).size;
+  const installedSize = fs.existsSync(destinationScript) ? fs.statSync(destinationScript).size : -1;
+  if (installedSize !== sourceSize) {
+    throw new Error(
+      installedSize < 0
+        ? `${destinationScript} was not created: the UAC prompt was dismissed or the copy failed`
+        : `${destinationScript} is ${installedSize} bytes, expected ${sourceSize}`,
+    );
+  }
+
+  console.log(`Bridge script installed successfully (${installedSize} bytes).`);
   console.log('\nImportant next steps:');
   console.log('1. Open After Effects');
   if (isMac) {
