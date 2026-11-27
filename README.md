@@ -60,7 +60,8 @@ needed for it.
 
 4. **Open the panel.** Restart After Effects, then *Window → Extensions → AFbridge MCP*.
 
-5. **Approve it once.** Open <http://127.0.0.1:7800/> → **Applications**, where the panel waits as
+5. **Approve it once, in the bridge.** Use the [AFbridge MCP bridge](https://github.com/Rakeshcool/mcp-bridge)
+   panel it ships — open <http://127.0.0.1:7800/> → **Applications**, where this panel waits as
    *pending_approval*, and approve it. Its 27 tools are hidden until you do.
 
 6. **Point your client at the binary:**
