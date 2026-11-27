@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "AfterEffectsMCP": {
+    "AFbridge MCP": {
       "command": "node",
       "args": ["G:\\pluginB\\after-effects-mcp\\build\\index.js"]
     }

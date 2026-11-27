@@ -5,7 +5,9 @@
 ![License](https://img.shields.io/github/license/Rakeshcool/aftereffects_live_mcp)
 ![Platform](https://img.shields.io/badge/platform-after%20effects-blue)
 
-✨ A Model Context Protocol (MCP) server for Adobe After Effects that enables AI assistants and other applications to control After Effects through a standardized protocol.
+✨ **AFbridge MCP** is a Model Context Protocol (MCP) server for Adobe After Effects that enables AI assistants and other applications to control After Effects through a standardized protocol.
+
+The name appears everywhere you touch it: the AE panel and its **Window → Extensions → AFbridge MCP** menu entry, the panel header, the name it registers with the bridge, and `serverInfo.name` on the stdio server. The extension id `com.mcpbridge.ae` and the connector id `after-effects-panel` are unchanged on purpose — renaming either would make CEP treat the panel as a new extension and lose the bridge's approval and tool settings. The repo, npm package and script file names (`after-effects-mcp`, `mcp-bridge-auto.jsx`) also stay as they were.
 
 ![AFbridge MCP demo](assets/demo.gif)
 
@@ -101,7 +103,7 @@ The repository includes a `.mcp.json` file for easy configuration. Copy or refer
 ```json
 {
   "mcpServers": {
-    "AfterEffectsMCP": {
+    "AFbridge MCP": {
       "command": "node",
       "args": ["PATH/TO/after-effects-mcp/build/index.js"]
     }
@@ -115,13 +117,16 @@ Go to your client (e.g., Claude or Cursor) and update your config file:
 ```json
 {
   "mcpServers": {
-    "AfterEffectsMCP": {
+    "AFbridge MCP": {
       "command": "node",
       "args": ["C:\\Users\\rakes\\aftereffects_live_mcp\\build\\index.js"]
     }
   }
 }
 ```
+
+The key under `mcpServers` is just the label your client shows, so `AFbridge MCP` there makes the
+server list read consistently with the panel.
 
 ### ▶️ Running the Server
 
@@ -294,7 +299,7 @@ npm run build
 yarn build
 ```
 
-**Note:** This project uses esbuild for fast builds, replacing the previous TypeScript compiler approach that could run out of memory on larger codebases.
+**Note:** the bundle is built with esbuild; `tsc` is used only for the typecheck that runs first (see below), never to emit.
 
 ### 🔍 Type Checking
 
