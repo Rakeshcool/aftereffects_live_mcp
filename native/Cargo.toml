@@ -1,0 +1,15 @@
+[package]
+name = "afbridge-ae"
+version = "0.1.0"
+edition = "2021"
+description = "AFbridge AE — a native MCP stdio server for After Effects, forwarding the panel's 27 tools through the AFbridge MCP bridge"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true

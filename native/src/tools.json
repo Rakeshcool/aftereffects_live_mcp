@@ -1,0 +1,746 @@
+[
+  {
+    "name": "apply-effect",
+    "description": "Apply one effect by display name, match name or preset path, with optional effectSettings keyed by property name.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compIndex": {
+          "type": "number"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "effectName": {
+          "type": "string"
+        },
+        "effectMatchName": {
+          "type": "string"
+        },
+        "presetPath": {
+          "type": "string"
+        },
+        "effectSettings": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "compIndex",
+        "layerIndex"
+      ],
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "apply-effect-template",
+    "description": "Apply a named effect template (a preset group of effects and settings) to a layer.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compIndex": {
+          "type": "number"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "templateName": {
+          "type": "string"
+        },
+        "customSettings": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "compIndex",
+        "layerIndex",
+        "templateName"
+      ],
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "batch-set-layer-properties",
+    "description": "Apply position, scale, rotation, opacity, 3D, blend mode and timing changes to several layers in one call.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "operations": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "operations"
+      ],
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "create-camera",
+    "description": "Add a camera layer; oneNode only turns auto-orientation off.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "zoom": {
+          "type": "number"
+        },
+        "position": {
+          "type": "array"
+        },
+        "pointOfInterest": {
+          "type": "array"
+        },
+        "oneNode": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "create-composition",
+    "description": "Create a composition and return its settings.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "pixelAspect": {
+          "type": "number"
+        },
+        "duration": {
+          "type": "number"
+        },
+        "frameRate": {
+          "type": "number"
+        },
+        "backgroundColor": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "create-shape-layer",
+    "description": "Add a shape layer (rectangle, ellipse, polygon or star) to a composition.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "shapeType": {
+          "type": "string"
+        },
+        "position": {
+          "type": "array"
+        },
+        "size": {
+          "type": "array"
+        },
+        "fillColor": {
+          "type": "array"
+        },
+        "strokeColor": {
+          "type": "array"
+        },
+        "strokeWidth": {
+          "type": "number"
+        },
+        "points": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "startTime": {
+          "type": "number"
+        },
+        "duration": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "shapeType"
+      ],
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "create-solid-layer",
+    "description": "Add a solid layer to a composition, or an adjustment layer with isAdjustment.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "color": {
+          "type": "array"
+        },
+        "size": {
+          "type": "array"
+        },
+        "position": {
+          "type": "array"
+        },
+        "isAdjustment": {
+          "type": "boolean"
+        },
+        "startTime": {
+          "type": "number"
+        },
+        "duration": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "create-text-layer",
+    "description": "Add a text layer to a composition.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "position": {
+          "type": "array"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "color": {
+          "type": "array"
+        },
+        "fontFamily": {
+          "type": "string"
+        },
+        "alignment": {
+          "type": "string"
+        },
+        "startTime": {
+          "type": "number"
+        },
+        "duration": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "delete-keyframe",
+    "description": "Remove the keyframe nearest a given time, or every keyframe on the property with all:true; reports the time removed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "compIndex": {
+          "type": "number"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "layerName": {
+          "type": "string"
+        },
+        "propertyName": {
+          "type": "string"
+        },
+        "timeInSeconds": {
+          "type": "number"
+        },
+        "all": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "propertyName"
+      ],
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "delete-layer",
+    "description": "Delete a layer from a composition.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "layerName": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "duplicate-layer",
+    "description": "Duplicate a layer, optionally renaming the copy.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "layerName": {
+          "type": "string"
+        },
+        "newName": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "get-layer-info",
+    "description": "List the layers of a composition, or describe one layer when layerIndex or layerName is given.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "compIndex": {
+          "type": "number"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "layerName": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "get-layer-property-tree",
+    "description": "Walk a layer's property tree with match names, current values and expressions, so an exact property path can be found without probing.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "compIndex": {
+          "type": "number"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "layerName": {
+          "type": "string"
+        },
+        "maxDepth": {
+          "type": "number"
+        },
+        "maxNodes": {
+          "type": "number"
+        },
+        "timeInSeconds": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "get-project-info",
+    "description": "Report the open project: name, path, item counts, active composition and the first 50 items.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "get-property-value",
+    "description": "Read a property's value at a time, its expression and its first 100 keyframes; accepts a slash path such as 'Transform/Position'.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "compIndex": {
+          "type": "number"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "layerName": {
+          "type": "string"
+        },
+        "propertyName": {
+          "type": "string"
+        },
+        "timeInSeconds": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "propertyName"
+      ],
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "list-compositions",
+    "description": "List every composition with its project item index, dimensions, duration, frame rate and layer count.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "purge-cache",
+    "description": "Purge After Effects caches (all, image, undo or snapshot) so a stale viewer frame is re-evaluated.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "render-composition",
+    "description": "Render through the render queue, or write one PNG frame when frameAtTime is given; reports the file actually written.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "compIndex": {
+          "type": "number"
+        },
+        "outputPath": {
+          "type": "string"
+        },
+        "outputModuleTemplate": {
+          "type": "string"
+        },
+        "frameAtTime": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "run-script",
+    "description": "Run ExtendScript given as a string inside After Effects; wrap it in (function () { ... })() to return a value. Needs no file on disk.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "run-script-file",
+    "description": "Run an ExtendScript (.jsx or .jsxbin) file from disk inside After Effects and return its result.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "save-project",
+    "description": "Save the project to its current file, or to a path when it has never been saved. Nothing saves on its own.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "set-composition-properties",
+    "description": "Change a composition's duration, frame rate, or width and height together.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "duration": {
+          "type": "number"
+        },
+        "frameRate": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "set-layer-expression",
+    "description": "Set or remove an expression on a layer property; an empty string removes it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compIndex": {
+          "type": "number"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "propertyName": {
+          "type": "string"
+        },
+        "expressionString": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "compIndex",
+        "layerIndex",
+        "propertyName",
+        "expressionString"
+      ],
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "set-layer-keyframe",
+    "description": "Set a keyframe on a Transform, Effects or Text property at a given time; a property with no keyframes first gets one at the current time.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compIndex": {
+          "type": "number"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "propertyName": {
+          "type": "string"
+        },
+        "timeInSeconds": {
+          "type": "number"
+        },
+        "value": {}
+      },
+      "required": [
+        "compIndex",
+        "layerIndex",
+        "propertyName",
+        "timeInSeconds",
+        "value"
+      ],
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "set-layer-mask",
+    "description": "Create a mask, or reshape and restyle an existing one when maskIndex is given; maskPath or maskRect is required either way.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "layerName": {
+          "type": "string"
+        },
+        "maskIndex": {
+          "type": "number"
+        },
+        "maskPath": {
+          "type": "array"
+        },
+        "maskRect": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "maskMode": {
+          "type": "string"
+        },
+        "maskFeather": {
+          "type": "array"
+        },
+        "maskOpacity": {
+          "type": "number"
+        },
+        "maskExpansion": {
+          "type": "number"
+        },
+        "maskName": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "set-layer-properties",
+    "description": "Set transform, text, timing or blending properties on one layer.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "layerName": {
+          "type": "string"
+        },
+        "position": {
+          "type": "array"
+        },
+        "scale": {
+          "type": "array"
+        },
+        "rotation": {
+          "type": "number"
+        },
+        "opacity": {
+          "type": "number"
+        },
+        "threeDLayer": {
+          "type": "boolean"
+        },
+        "trackMatteType": {
+          "type": "string"
+        },
+        "blendMode": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "startTime": {
+          "type": "number"
+        },
+        "duration": {
+          "type": "number"
+        },
+        "text": {
+          "type": "string"
+        },
+        "fontFamily": {
+          "type": "string"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "fillColor": {
+          "type": "array"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  {
+    "name": "set-property-value",
+    "description": "Write one property by slash path ('Transform/Position', 'Effects/Glow/Glow Radius', a shape group's 'Contents/…'), optionally as a keyframe at timeInSeconds. Covers what the typed setters cannot reach.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "compName": {
+          "type": "string"
+        },
+        "compIndex": {
+          "type": "number"
+        },
+        "layerIndex": {
+          "type": "number"
+        },
+        "layerName": {
+          "type": "string"
+        },
+        "propertyName": {
+          "type": "string"
+        },
+        "value": {},
+        "timeInSeconds": {
+          "type": "number"
+        },
+        "expression": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "propertyName",
+        "value"
+      ],
+      "additionalProperties": true
+    }
+  }
+]

@@ -311,6 +311,30 @@ afbridge-ae.exe --list-tools     # the 27 tools, one per line
 afbridge-ae.exe --port 7800      # bridge port (or --base http://127.0.0.1:7800)
 ```
 
+### Build it yourself
+
+The source is in [`native/`](native) — a Cargo crate with a single dependency (`serde_json`):
+
+```bash
+cd native
+cargo build --release          # -> native/target/release/afbridge-ae.exe
+cargo run --release -- --list-tools
+```
+
+Rust 1.70 or newer is enough (built and tested with 1.97), and no Node is needed to build or run it.
+`Cargo.lock` is committed, so a rebuild uses the same dependency versions.
+
+`native/src/tools.json` is the catalogue the binary bakes in with `include_str!`. The tools are
+defined by the CEP panel, so that file is generated rather than hand-written. Regenerate it only when
+the tool set changes, with the bridge running and the panel open and approved:
+
+```bash
+node native/scripts/gen-tools.mjs      # also takes --port, --base and --out
+```
+
+It sorts by name and writes fixed formatting, so an unchanged panel produces a byte-identical file and
+an empty diff.
+
 If you would rather not run the bridge, the Node server above is unchanged and still works on its
 own: it writes commands to a folder that the ScriptUI panel polls.
 

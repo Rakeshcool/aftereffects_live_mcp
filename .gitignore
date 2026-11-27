@@ -71,3 +71,6 @@ settings.local.json
 
 # Prebuilt native binary: distributed as a release asset, never committed
 bin/*.exe
+
+# Rust build output for the native binary
+native/target/
