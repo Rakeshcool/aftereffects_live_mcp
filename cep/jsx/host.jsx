@@ -37,7 +37,7 @@ function mcpCepInfo() {
  */
 function mcpCepCall(name, argsJson) {
   if (!MCP_CEP_LOADED) {
-    return JSON.stringify({ ok: false, error: "The AE command library is not loaded. Reopen the MCP Bridge panel." });
+    return JSON.stringify({ ok: false, error: "The AE command library is not loaded. Reopen the AFbridge MCP panel." });
   }
   var args;
   try {

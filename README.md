@@ -1,4 +1,4 @@
-# 🎬 After Effects MCP Server
+# 🎬 AFbridge MCP — After Effects MCP Server
 
 ![Node.js](https://img.shields.io/badge/node-%3E=14.x-brightgreen.svg)
 ![Build](https://img.shields.io/badge/build-passing-success)
@@ -7,7 +7,7 @@
 
 ✨ A Model Context Protocol (MCP) server for Adobe After Effects that enables AI assistants and other applications to control After Effects through a standardized protocol.
 
-![MCP Bridge demo](assets/demo.gif)
+![AFbridge MCP demo](assets/demo.gif)
 
 ## Table of Contents
 - [Features](#features)
@@ -134,14 +134,14 @@ Go to your client (e.g., Claude or Cursor) and update your config file:
 
 2. **Open After Effects**
 
-3. **Open the MCP Bridge Auto panel**
-   - In After Effects, go to Window > mcp-bridge-auto.jsx
+3. **Open the AFbridge MCP panel**
+   - In After Effects, go to Window > mcp-bridge-auto.jsx (ScriptUI variant) or Window → Extensions → AFbridge MCP (CEP panel)
    - The panel will automatically check for commands every few seconds
    - Make sure the "Auto-run commands" checkbox is enabled
 
 ## 🚀 Usage Guide
 
-Once you have the server running and the MCP Bridge panel open in After Effects, you can control After Effects through the MCP protocol. This allows AI assistants or custom applications to send commands to After Effects.
+Once you have the server running and the AFbridge MCP panel open in After Effects, you can control After Effects through the MCP protocol. This allows AI assistants or custom applications to send commands to After Effects.
 
 ### 📘 Creating Compositions
 
@@ -213,9 +213,9 @@ the panel's `index.html`/`main.js` move to a UXP plugin and the protocol stays t
 npm run install-cep        # builds the command library, installs into %APPDATA%\Adobe\CEP\extensions\com.mcpbridge.ae
 ```
 
-Restart After Effects, then open **Window → Extensions → MCP Bridge**. The panel connects to
+Restart After Effects, then open **Window → Extensions → AFbridge MCP**. The panel connects to
 `ws://127.0.0.1:7800/ws/connector` (editable, with an optional token) and registers as
-**After Effects (panel)** — id `after-effects-panel`. Approve it once in the bridge panel's *Applications*
+**AFbridge MCP** — id `after-effects-panel`. Approve it once in the bridge panel's *Applications*
 view; its 27 tools then appear in `/api/tools`, `/mcp` and model requests. The id is deliberately distinct
 from the `after-effects` stdio server: the bridge refuses two servers with the same id, so both transports
 can be installed while the folder bridge is retired.
@@ -295,6 +295,29 @@ yarn build
 ```
 
 **Note:** This project uses esbuild for fast builds, replacing the previous TypeScript compiler approach that could run out of memory on larger codebases.
+
+### 🔍 Type Checking
+
+```bash
+npm run typecheck   # zod guard + tsc --noEmit over src/**/*
+```
+
+`npm run build` runs this first, and `postinstall`/`prepublishOnly` run the build, so an
+install or publish with a bad zod fails in milliseconds instead of turning into a heap
+crash later. `npm run check:zod` runs just the guard.
+
+This needs **zod 3.25 or newer**. The MCP SDK declares `zod: ^3.25 || ^4.0`, and against an
+older zod its `tool()` overloads never resolve: each call reports `TS2589: Type instantiation
+is excessively deep and possibly infinite` (a single call costs 8–30 s), and a file with a
+handful of tools exhausts the heap — `FATAL ERROR: Ineffective mark-compacts near heap limit`,
+exit 134. That failure looks like a broken Node install but is purely the dependency mismatch,
+which is why `zod` is pinned to `^3.25.76`.
+
+**Two copies are just as fatal as an old one.** With zod 3.25.76 at the top level and a
+second copy nested under the SDK, `tsc` still burns 4 GB and aborts after ~57 s, because
+`src/` and the SDK's declarations resolve different type graphs. `"overrides": { "zod": "$zod" }`
+forces npm to a single version; `scripts/check-zod.mjs` fails the build if a nested copy
+ever sneaks back in, so run `npm dedupe` if it complains.
 
 ### 🤝 Contributing
 

@@ -1,5 +1,5 @@
 // install-bridge.js
-// Script to install the After Effects MCP Bridge to the ScriptUI Panels folder
+// Script to install the AFbridge MCP ScriptUI panel to the ScriptUI Panels folder
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';

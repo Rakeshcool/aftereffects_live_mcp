@@ -46,14 +46,14 @@ const files = [];
   }
 })(target);
 
-console.log(`Installed the MCP Bridge panel to:\n  ${target}\n`);
+console.log(`Installed the AFbridge MCP panel to:\n  ${target}\n`);
 console.log(`Files: ${files.length}`);
 for (const file of files) console.log(`  ${file}`);
 console.log(`
 Next:
-  1. Restart After Effects (or reload the extension: Window > Extensions > MCP Bridge).
-  2. Open the panel: Window > Extensions > MCP Bridge.
-  3. It registers with the bridge as "After Effects (panel)" (id after-effects-panel) and waits for approval.
+  1. Restart After Effects (or reload the extension: Window > Extensions > AFbridge MCP).
+  2. Open the panel: Window > Extensions > AFbridge MCP.
+  3. It registers with the bridge as "AFbridge MCP" (id after-effects-panel) and waits for approval.
   4. Approve it in the bridge panel (Applications), then its tools appear in /api/tools and /mcp.
 
 The bridge connector must be running:  cd ../mcp-bridge && node scripts/mcp.mjs up

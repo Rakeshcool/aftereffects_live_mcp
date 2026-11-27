@@ -1,5 +1,5 @@
 // mcp-bridge-auto.jsx
-// Auto-running MCP Bridge panel for After Effects
+// Auto-running AFbridge MCP panel for After Effects
 
 // --- Function Definitions ---
 
@@ -1245,7 +1245,7 @@ var aeVersion = parseFloat(app.version);
 var isAE2025OrLater = aeVersion >= 25.0;
 
 // Always create a floating palette window for AE 2025+
-var panel = new Window("palette", "MCP Bridge Auto", undefined);
+var panel = new Window("palette", "AFbridge MCP", undefined);
 panel.orientation = "column";
 panel.alignChildren = ["fill", "top"];
 panel.spacing = 10;
@@ -2304,7 +2304,7 @@ checkButton.onClick = function() {
 };
 
 // Log startup
-logToPanel("MCP Bridge Auto started");
+logToPanel("AFbridge MCP started");
 logToPanel("Command file: " + getCommandFilePath());
 statusText.text = "Ready - Auto-run is " + (autoRunCheckbox.value ? "ON" : "OFF");
 

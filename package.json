@@ -15,17 +15,23 @@
   "main": "build/index.js",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=build/index.js --packages=external && copyfiles -u 1 \"src/scripts/**/*\" build",
+    "build": "npm run typecheck && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=build/index.js --packages=external && copyfiles -u 1 \"src/scripts/**/*\" build",
     "start": "node build/index.js",
     "install-bridge": "node install-bridge.js",
     "build:commands": "node scripts/build-commands.mjs",
     "install-cep": "node scripts/build-commands.mjs && node install-cep.js",
-    "postinstall": "npm run build"
+    "postinstall": "npm run build",
+    "prepublishOnly": "npm run build",
+    "check:zod": "node scripts/check-zod.mjs",
+    "typecheck": "npm run check:zod && tsc --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
     "node-fetch": "^3.3.2",
-    "zod": "^3.22.2"
+    "zod": "^3.25.76"
+  },
+  "overrides": {
+    "zod": "$zod"
   },
   "devDependencies": {
     "@types/node": "^20.17.30",

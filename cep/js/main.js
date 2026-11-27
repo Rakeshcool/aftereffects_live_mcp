@@ -156,7 +156,7 @@
     send({
       type: "register",
       protocol: 1,
-      server: { id: SERVER_ID, name: "After Effects (panel)", description: "Adobe After Effects via the CEP panel" },
+      server: { id: SERVER_ID, name: "AFbridge MCP", description: "Adobe After Effects via the AFbridge MCP panel" },
       application: { name: info.app || "Adobe After Effects", version: info.version || "", extensionType: "CEP" },
       capabilities: ["compositions", "layers", "effects", "keyframes", "expressions", "scripting"],
       tools: window.MCP_AE_TOOLS || [],

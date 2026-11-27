@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 
 // Create an MCP server
 const server = new McpServer({
-  name: "AfterEffectsServer",
+  name: "AFbridge MCP",
   version: "1.1.0"
 });
 
@@ -220,7 +220,7 @@ async function runBridgeTool(
   if (result === null) {
     return textResult(
       `No result after ${waitLabel(timeoutMs)}. The panel is probably not open in After Effects ` +
-      `(Window > Extensions > MCP Bridge, or Window > mcp-bridge-auto.jsx with "Auto-run commands" ` +
+      `(Window > Extensions > AFbridge MCP, or Window > mcp-bridge-auto.jsx with "Auto-run commands" ` +
       `checked), a dialog is blocking it, or the command is still running. ` +
       `Command and result files are in ${getAETempDir()}.`,
       true,
