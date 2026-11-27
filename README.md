@@ -112,7 +112,7 @@ No bridge, no panel approval: the server writes command files to a folder that a
    }
    ```
 
-5. **Open the panel in After Effects:** *Window → mcp-bridge-auto.jsx*, and leave **Auto-run commands**
+5. **Open the panel in After Effects:** *Window → afbridge-mcp.jsx*, and leave **Auto-run commands**
    ticked.
 
 ## 🛠 Tools
@@ -155,7 +155,7 @@ one tool call is one undo step. It must be open in AE; closing it makes the brid
 `disconnected` and its tools leave the catalogue.
 
 The panel's ExtendScript shares one implementation with Path B: `scripts/build-commands.mjs` extracts the
-command functions from `mcp-bridge-auto.jsx` into the UI-free `src/scripts/ae-commands.jsx` (committed),
+command functions from `afbridge-mcp.jsx` into the UI-free `src/scripts/ae-commands.jsx` (committed),
 so both panels run the same code. Reinstall with `npm run install-cep` after changing either.
 
 ## 🧰 Development

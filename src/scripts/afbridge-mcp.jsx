@@ -1,4 +1,4 @@
-// mcp-bridge-auto.jsx
+// afbridge-mcp.jsx
 // Auto-running AFbridge MCP panel for After Effects
 
 // --- Function Definitions ---

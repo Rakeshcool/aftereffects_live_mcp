@@ -23,7 +23,8 @@
     "postinstall": "npm run build",
     "prepublishOnly": "npm run build",
     "check:zod": "node scripts/check-zod.mjs",
-    "typecheck": "npm run check:zod && tsc --noEmit"
+    "check:commands": "node scripts/build-commands.mjs --check",
+    "typecheck": "npm run check:zod && npm run check:commands && tsc --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",

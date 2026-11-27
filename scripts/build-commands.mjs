@@ -1,18 +1,19 @@
 /**
  * Builds `src/scripts/ae-commands.jsx` from the ScriptUI panel.
  *
- * The command implementations live in `mcp-bridge-auto.jsx`, which also builds a ScriptUI window and
+ * The command implementations live in `afbridge-mcp.jsx`, which also builds a ScriptUI window and
  * starts a file-polling loop when it loads. A CEP panel cannot load that file (it would open a second
  * floating window and start a second poller), and copying ~1500 lines of AE logic would create two
  * divergent copies. So the top-level command functions are extracted verbatim into a UI-free library
  * with a small `mcpRunCommand(name, args)` entry point, and both clients use that one implementation:
  *
- *   ScriptUI panel  → mcp-bridge-auto.jsx (unchanged, talks to the file bridge)
+ *   ScriptUI panel  → afbridge-mcp.jsx (unchanged, talks to the file bridge)
  *   CEP panel       → ae-commands.jsx (talks to the WebSocket bridge connector)
  *
  * The panel file interleaves UI construction between function definitions, so blocks are taken by
  * name rather than by line range. Run with `npm run build:commands`; the generated file is committed
- * so the CEP installer needs no build step.
+ * so the CEP installer needs no build step. `--check` (wired into `npm run typecheck`) regenerates in
+ * memory and fails if the committed copy has drifted, so the two panels cannot run different code.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -20,7 +21,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
-const SOURCE = path.join(ROOT, "src", "scripts", "mcp-bridge-auto.jsx");
+const SOURCE = path.join(ROOT, "src", "scripts", "afbridge-mcp.jsx");
 const TARGET = path.join(ROOT, "src", "scripts", "ae-commands.jsx");
 
 /** Tool name (what the bridge and model see) → the command implementation it runs. */
@@ -133,7 +134,7 @@ const missing = Object.values(COMMANDS)
   .map((call) => /^([A-Za-z_$][\w$]*)\(/.exec(call)?.[1])
   .filter((fn) => fn && !blocks.has(fn));
 if (missing.length) {
-  throw new Error(`mcp-bridge-auto.jsx no longer defines: ${[...new Set(missing)].join(", ")}`);
+  throw new Error(`afbridge-mcp.jsx no longer defines: ${[...new Set(missing)].join(", ")}`);
 }
 
 const selected = [...blocks.entries()].filter(([fn]) => !EXCLUDED.has(fn));
@@ -184,8 +185,25 @@ ${entries}
 })(this);
 `;
 
-fs.writeFileSync(TARGET, output, "utf8");
-console.log(
-  `wrote ${path.relative(ROOT, TARGET)} — ${output.split(/\r?\n/).length} lines, ` +
-    `${selected.length} functions, ${Object.keys(COMMANDS).length} tools`,
-);
+const check = process.argv.includes("--check");
+const normalize = (text) => text.replace(/\r\n/g, "\n");
+
+if (check) {
+  // Windows checkouts may hold CRLF while `output` is built with LF, so compare newline-normalized text.
+  const committed = fs.existsSync(TARGET) ? normalize(fs.readFileSync(TARGET, "utf8")) : "";
+  if (committed !== normalize(output)) {
+    console.error(
+      `FAIL ${path.relative(ROOT, TARGET)} is stale: it no longer matches what ` +
+        `${path.relative(ROOT, SOURCE)} generates.`,
+    );
+    console.error("Run `npm run build:commands` and commit the result — the file is generated, never hand-edited.");
+    process.exit(1);
+  }
+  console.log(`ok ${path.relative(ROOT, TARGET)} is in sync with ${path.relative(ROOT, SOURCE)}`);
+} else {
+  fs.writeFileSync(TARGET, output, "utf8");
+  console.log(
+    `wrote ${path.relative(ROOT, TARGET)} — ${output.split(/\r?\n/).length} lines, ` +
+      `${selected.length} functions, ${Object.keys(COMMANDS).length} tools`,
+  );
+}
