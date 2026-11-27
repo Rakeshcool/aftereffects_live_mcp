@@ -113,7 +113,7 @@ function createShapeLayer(args) {
             shapePathProperty.property("Size").setValue(size);
         } else if (shapeType === "polygon" || shapeType === "star") { 
             shapePathProperty = groupContents.addProperty("ADBE Vector Shape - Star");
-            shapePathProperty.property("Type").setValue(shapeType === "polygon" ? 1 : 2); 
+            shapePathProperty.property("Type").setValue(shapeType === "polygon" ? 2 : 1); // AE: 1 = star, 2 = polygon 
             shapePathProperty.property("Points").setValue(points);
             shapePathProperty.property("Outer Radius").setValue(size[0] / 2);
             if (shapeType === "star") { shapePathProperty.property("Inner Radius").setValue(size[0] / 3); }
@@ -1031,12 +1031,12 @@ function applyEffectTemplate(args) {
             },
             "curves": {
                 effectMatchName: "ADBE CurvesCustom",
-                // Curves are complex and would need special handling
+                settings: {} // no settings: the curve itself is edited by hand afterwards
             },
             
             // Stylistic effects
             "glow": {
-                effectMatchName: "ADBE Glow",
+                effectMatchName: "ADBE Glo2", // AE 26 has Glow 2; "ADBE Glow" is rejected
                 settings: {
                     "Glow Threshold": customSettings.threshold || 50,
                     "Glow Radius": customSettings.radius || 15,
@@ -1082,7 +1082,7 @@ function applyEffectTemplate(args) {
                         }
                     },
                     {
-                        effectMatchName: "ADBE Glow",
+                        effectMatchName: "ADBE Glo2", // AE 26 has Glow 2; "ADBE Glow" is rejected
                         settings: {
                             "Glow Threshold": 50,
                             "Glow Radius": 10,
@@ -1108,11 +1108,11 @@ function applyEffectTemplate(args) {
             var effect = layer.Effects.addProperty(template.effectMatchName);
             
             // Apply settings
-            for (var propName in template.settings) {
+            for (var propName in (template.settings || {})) {
                 try {
                     var property = effect.property(propName);
                     if (property) {
-                        property.setValue(template.settings[propName]);
+                        property.setValue((template.settings || {})[propName]);
                     }
                 } catch (e) {
                     $.writeln("Warning: Could not set " + propName + " on effect " + effect.name + ": " + e);
