@@ -19,7 +19,7 @@ The name appears everywhere you touch it: the AE panel and its **Window → Exte
 - [Setup Instructions](#setup-instructions)
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
-  - [Update MCP Config](#Update-MCP-Config)
+  - [Update MCP Config](#update-mcp-config)
   - [Running the Server](#running-the-server)
 - [Usage Guide](#usage-guide)
   - [Creating Compositions](#creating-compositions)
@@ -62,8 +62,10 @@ The name appears everywhere you touch it: the AE panel and its **Window → Exte
 
 ### 🛠 Prerequisites
 - Adobe After Effects (2022 or later)
-- Node.js (v14 or later)
+- Node.js (v18 or later; 20 or 22 recommended — the MCP SDK declares `node >= 18`, so 14 and 16 fail at startup)
 - npm or yarn package manager
+- For the CEP panel, the AFbridge MCP bridge from [`mcp-bridge`](../mcp-bridge): the panel connects to it, so it has to be installed and running
+- In After Effects, enable **Preferences → Scripting & Expressions → Allow Scripts to Write Files and Access Network** (macOS: After Effects → Settings → Scripting & Expressions). Both panels execute ExtendScript from disk — the CEP panel loads its command library with `$.evalFile` — and tool calls fail until this is on.
 
 ### 📥 Installation
 
@@ -95,21 +97,32 @@ The name appears everywhere you touch it: the AE panel and its **Window → Exte
    ```
    This will copy the necessary scripts to your After Effects installation.
 
+5. **Install the CEP panel (recommended)**
+   ```bash
+   npm run install-cep
+   ```
+   The panel from step 4 is driven by the stdio server in this folder. The CEP panel is driven by the
+   bridge instead — it dials the bridge over a WebSocket and answers tool calls directly, which is why the
+   [CEP panel](#cep-panel-websocket-connector) section below also covers installing, starting and approving
+   the bridge.
+
 ### 🔧 Update MCP Config
 
 #### Option 1: Using .mcp.json (Recommended for Claude Code)
-The repository includes a `.mcp.json` file for easy configuration. Copy or reference it in your MCP settings:
+The repository includes a `.mcp.json` file for easy configuration. It points at `./build/index.js`, relative to the folder the client runs from, so copying it into this repo (or into the folder your client uses) is enough — no path editing:
 
 ```json
 {
   "mcpServers": {
     "AFbridge MCP": {
       "command": "node",
-      "args": ["PATH/TO/after-effects-mcp/build/index.js"]
+      "args": ["./build/index.js"]
     }
   }
 }
 ```
+
+If your client does not resolve relative paths, replace the argument with the absolute path to `build/index.js`, as in Option 2.
 
 #### Option 2: Manual Configuration
 Go to your client (e.g., Claude or Cursor) and update your config file:
@@ -218,10 +231,22 @@ the panel's `index.html`/`main.js` move to a UXP plugin and the protocol stays t
 npm run install-cep        # builds the command library, installs into %APPDATA%\Adobe\CEP\extensions\com.mcpbridge.ae
 ```
 
+**The bridge has to be installed and running first** — the panel is an inert window without it:
+
+```bash
+cd ../mcp-bridge
+bun install                # once: bridge dependencies
+bun run build              # once: the bridge's own web panel
+node scripts/mcp.mjs up    # start the bridge on http://127.0.0.1:7800
+```
+
 Restart After Effects, then open **Window → Extensions → AFbridge MCP**. The panel connects to
 `ws://127.0.0.1:7800/ws/connector` (editable, with an optional token) and registers as
-**AFbridge MCP** — id `after-effects-panel`. Approve it once in the bridge panel's *Applications*
-view; its 27 tools then appear in `/api/tools`, `/mcp` and model requests. The id is deliberately distinct
+**AFbridge MCP** — id `after-effects-panel`. Approve it once: open **http://127.0.0.1:7800/** →
+**Applications**, where a newly registered application sits as *pending_approval*. Until it is approved it
+cannot connect and exposes no tools — `POST /api/servers/after-effects-panel/connect` answers
+`MCP_APPROVAL_REQUIRED`. After approval its 27 tools appear in `/api/tools`, `/mcp` and model requests, and
+the approval survives restarts and panel reconnects. The id is deliberately distinct
 from the `after-effects` stdio server: the bridge refuses two servers with the same id, so both transports
 can be installed while the folder bridge is retired.
 
