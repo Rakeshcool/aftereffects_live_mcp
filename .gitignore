@@ -68,3 +68,6 @@ yarn-error.log*
 CLAUDE.md
 settings.local.json
 
+
+# Prebuilt native binary: distributed as a release asset, never committed
+bin/*.exe

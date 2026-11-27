@@ -276,6 +276,44 @@ regenerates it and fails loudly if a command disappears or ScriptUI construction
 - The panel must be open in AE: when it closes, the server reports `disconnected` and its tools leave the
   catalog; reopening the panel re-registers and reconnects without another approval.
 
+## ⚡ Native binary (no Node)
+
+The same 27 tools also ship as a prebuilt Windows binary attached to each
+[release](https://github.com/Rakeshcool/aftereffects_live_mcp/releases). It is an MCP stdio server like
+`build/index.js`, but it needs no Node install and starts in milliseconds.
+
+| | Node server | Native binary |
+| --- | --- | --- |
+| Run with | `node build/index.js` | `afbridge-ae.exe` |
+| Needs | Node 18+ | nothing |
+| Reaches AE through | the ScriptUI panel's command folder | the bridge's connector socket (CEP panel) |
+| Tools | the 27 below | the same 27, schemas embedded |
+
+Download `afbridge-ae.exe` and keep it wherever you like — this repo's `bin/` is a convenient
+place and is gitignored, so a local copy never ends up in a commit. Point your MCP client at it:
+
+```json
+{
+  "mcpServers": {
+    "AFbridge MCP": { "command": "C:\\path\\to\\afbridge-ae.exe" }
+  }
+}
+```
+
+It talks to the [AFbridge MCP bridge](../mcp-bridge) on `http://127.0.0.1:7800`, so the bridge must be
+running and the CEP panel open and approved: the After Effects logic is still ExtendScript running
+inside AE, and the binary is the transport, not a second implementation. Start the bridge with
+`node scripts/mcp.mjs up` in `mcp-bridge`.
+
+```bash
+afbridge-ae.exe --version        # afbridge-ae 0.1.0
+afbridge-ae.exe --list-tools     # the 27 tools, one per line
+afbridge-ae.exe --port 7800      # bridge port (or --base http://127.0.0.1:7800)
+```
+
+If you would rather not run the bridge, the Node server above is unchanged and still works on its
+own: it writes commands to a folder that the ScriptUI panel polls.
+
 ## 🛠 Available MCP Tools
 
 | Tool | Description |
